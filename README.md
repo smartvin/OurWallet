@@ -29,7 +29,7 @@ npm install
 ```
 
 3. Configure environment variables:
-   - Copy `.env.example` to `.env`
+   - decrypt env.enc to > .env 
    - Update the values in `.env` with your own:
      - Generate secure encryption keys
      - Add your Infura project ID or other RPC URL

@@ -1,4 +1,4 @@
-# Wallet Management System
+# OurWallet Management System
 
 A secure wallet management system built with NestJS and ethers.js.
 

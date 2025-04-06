@@ -1,0 +1,164 @@
+openapi: 3.0.0
+info:
+  title: Wallet Management API
+  version: 1.0.0
+  description: API for managing wallet connections and user operations
+
+servers:
+  - url: http://localhost:3001
+    description: Local development server
+
+paths:
+  /:
+    get:
+      summary: Root endpoint
+      description: Welcome message for the API
+      responses:
+        '200':
+          description: Welcome message
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: "Welcome to Wallet Management API"
+
+  /user:
+    post:
+      summary: Create a new user
+      description: Creates a new user with associated wallet
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                  example: "John Doe"
+                email:
+                  type: string
+                  example: "john@example.com"
+      responses:
+        '201':
+          description: User created successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                  name:
+                    type: string
+                  email:
+                    type: string
+                  walletAddress:
+                    type: string
+
+  /user/{userId}:
+    get:
+      summary: Get user details
+      description: Retrieves user information including wallet details
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: User details retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                  name:
+                    type: string
+                  email:
+                    type: string
+                  walletAddress:
+                    type: string
+                  balance:
+                    type: string
+
+  /wallet/connect:
+    post:
+      summary: Connect wallet
+      description: Connects a wallet to the application
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                walletType:
+                  type: string
+                  enum: [metamask, walletconnect]
+                  example: "metamask"
+                address:
+                  type: string
+                  example: "0x1234...5678"
+      responses:
+        '200':
+          description: Wallet connected successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  connected:
+                    type: boolean
+                  address:
+                    type: string
+                  chainId:
+                    type: number
+
+  /wallet/disconnect:
+    post:
+      summary: Disconnect wallet
+      description: Disconnects the currently connected wallet
+      responses:
+        '200':
+          description: Wallet disconnected successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+
+  /wallet/balance:
+    get:
+      summary: Get wallet balance
+      description: Retrieves the balance of the connected wallet
+      responses:
+        '200':
+          description: Balance retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  balance:
+                    type: string
+                  currency:
+                    type: string
+                    example: "ETH"
+
+components:
+  schemas:
+    Error:
+      type: object
+      properties:
+        message:
+          type: string
+        error:
+          type: string
+        statusCode:
+          type: number 

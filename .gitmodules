@@ -1,0 +1,6 @@
+[submodule "ContractConnector"]
+	path = ContractConnector
+	url = git@github.smartVIN:smartVIN/ContractConnector
+[submodule "src/ContractConnector"]
+	path = src/ContractConnector
+	url = git@github.smartVIN:smartVIN/ContractConnector

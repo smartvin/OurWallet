@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GameStaker - Wallet Dashboard</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            background-color: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+        .section {
+            margin-bottom: 20px;
+            padding: 15px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+        .section h2 {
+            margin-top: 0;
+            color: #333;
+        }
+        .address {
+            font-family: monospace;
+            background-color: #f8f8f8;
+            padding: 8px;
+            border-radius: 4px;
+            word-break: break-all;
+        }
+        .sign-form {
+            display: flex;
+            gap: 10px;
+            margin-top: 10px;
+        }
+        .sign-input {
+            flex: 1;
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+        .sign-btn {
+            padding: 8px 16px;
+            background-color: #4285f4;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        .sign-btn:hover {
+            background-color: #357abd;
+        }
+        .signature {
+            margin-top: 10px;
+            font-family: monospace;
+            background-color: #f8f8f8;
+            padding: 8px;
+            border-radius: 4px;
+            word-break: break-all;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>Wallet Dashboard</h1>
+        </div>
+        
+        <div class="section">
+            <h2>Wallet Status</h2>
+            <p><strong>Address:</strong> <span id="walletAddress" class="address">Loading...</span></p>
+            <p><strong>Connected Chain:</strong> <span id="connectedChain">Loading...</span></p>
+        </div>
+
+        <div class="section">
+            <h2>Sign Message</h2>
+            <form id="signForm" class="sign-form">
+                <input type="text" id="messageInput" class="sign-input" placeholder="Enter message to sign" required>
+                <button type="submit" class="sign-btn">Sign</button>
+            </form>
+            <div id="signatureResult" class="signature"></div>
+        </div>
+    </div>
+
+    <script>
+        // Get user ID from URL
+        const userId = new URLSearchParams(window.location.search).get('userId');
+        if (!userId) {
+            window.location.href = '/';
+        }
+
+        // Common fetch options
+        const fetchOptions = {
+            credentials: 'include',
+            headers: {
+                'Content-Type': 'application/json',
+                'Accept': 'application/json'
+            }
+        };
+
+        // Load wallet information
+        async function loadWalletInfo() {
+            try {
+                const response = await fetch(`/wallet/${userId}/info`, fetchOptions);
+                if (!response.ok) {
+                    if (response.status === 401) {
+                        // Use form submission for auth redirect
+                        const form = document.createElement('form');
+                        form.method = 'GET';
+                        form.action = '/auth/google';
+                        document.body.appendChild(form);
+                        form.submit();
+                        return;
+                    }
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                const data = await response.json();
+                document.getElementById('walletAddress').textContent = data.address;
+                document.getElementById('connectedChain').textContent = 
+                    data.networks.find(n => n.connected)?.chain || 'Not connected';
+            } catch (error) {
+                console.error('Error loading wallet info:', error);
+            }
+        }
+
+        // Handle message signing
+        document.getElementById('signForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const message = document.getElementById('messageInput').value;
+            try {
+                const response = await fetch(`/wallet/${userId}/sign`, {
+                    ...fetchOptions,
+                    method: 'POST',
+                    body: JSON.stringify({ message })
+                });
+                if (!response.ok) {
+                    if (response.status === 401) {
+                        // Use form submission for auth redirect
+                        const form = document.createElement('form');
+                        form.method = 'GET';
+                        form.action = '/auth/google';
+                        document.body.appendChild(form);
+                        form.submit();
+                        return;
+                    }
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                const data = await response.json();
+                document.getElementById('signatureResult').textContent = data.signature;
+            } catch (error) {
+                console.error('Error signing message:', error);
+                document.getElementById('signatureResult').textContent = 'Error signing message';
+            }
+        });
+
+        // Load initial data
+        loadWalletInfo();
+    </script>
+</body>
+</html> 

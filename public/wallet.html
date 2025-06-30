@@ -3,7 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>GameStaker - Wallet Dashboard</title>
+    <title>MultiWallet - Wallet Dashboard</title>
+    <link rel="stylesheet" href="/wallet-modal.css">
     <style>
         body {
             font-family: Arial, sans-serif;
@@ -77,7 +78,11 @@
 <body>
     <div class="container">
         <div class="header">
-            <h1>Wallet Dashboard</h1>
+            <h1>MultiWallet Dashboard</h1>
+            <div>
+                <span class="wallet-status">Not connected</span>
+                <button class="wallet-connect-btn" onclick="WalletUtils.openWallet()">Connect Wallet</button>
+            </div>
         </div>
         
         <div class="section">
@@ -97,10 +102,14 @@
     </div>
 
     <script>
-        // Get user ID from URL
+        // Get user ID from URL (optional for wallet testing)
         const userId = new URLSearchParams(window.location.search).get('userId');
+        
+        // NEXT For testing: allow access without userId, but show demo mode
         if (!userId) {
-            window.location.href = '/';
+            console.log('Demo mode: No userId provided, wallet features may be limited');
+            document.getElementById('walletAddress').textContent = 'Demo mode - no backend wallet';
+            document.getElementById('connectedChain').textContent = 'Demo mode';
         }
 
         // Common fetch options
@@ -114,6 +123,12 @@
 
         // Load wallet information
         async function loadWalletInfo() {
+            // Skip backend call in demo mode
+            if (!userId) {
+                console.log('Skipping backend wallet info in demo mode');
+                return;
+            }
+            
             try {
                 const response = await fetch(`/wallet/${userId}/info`, fetchOptions);
                 if (!response.ok) {
@@ -170,5 +185,8 @@
         // Load initial data
         loadWalletInfo();
     </script>
+
+    <!-- Include TypeScript-generated wallet functionality -->
+    <script src="/wallet-frontend/wallet.js"></script>
 </body>
 </html> 

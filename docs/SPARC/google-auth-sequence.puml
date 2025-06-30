@@ -1,0 +1,93 @@
+@startuml Google Authentication Sequence
+!define LIGHTBLUE #E3F2FD
+!define LIGHTGREEN #E8F5E8
+!define LIGHTYELLOW #FFF9C4
+!define LIGHTRED #FFEBEE
+
+title Google Client-Side Authentication Flow
+
+actor User as U
+participant "WalletModal\n(React)" as WM LIGHTBLUE
+participant "Google Sign-In\nLibrary" as GAPI LIGHTYELLOW
+participant "Google OAuth\nServers" as GOAuth LIGHTGREEN
+participant "App State\n(React)" as AppState LIGHTBLUE
+
+== Initialization ==
+U -> WM: Click "Connect with Google"
+activate WM
+WM -> WM: setState('connecting')
+WM -> GAPI: gapi.auth2.getAuthInstance()
+activate GAPI
+GAPI -> GAPI: Check if initialized
+alt Not initialized
+  GAPI -> GOAuth: Load Google Sign-In
+  activate GOAuth
+  GOAuth -> GAPI: Return auth instance
+  deactivate GOAuth
+end
+
+== Authentication Flow ==
+WM -> GAPI: auth2.signIn()
+GAPI -> GOAuth: Open Google Sign-In popup
+activate GOAuth
+GOAuth -> U: Show Google login form
+U -> GOAuth: Enter credentials / consent
+GOAuth -> GAPI: Return GoogleUser object
+deactivate GOAuth
+GAPI -> WM: GoogleUser with profile + token
+deactivate GAPI
+
+== Data Extraction ==
+WM -> WM: Extract user data:\n- profile.getEmail()\n- profile.getName()\n- profile.getImageUrl()\n- getAuthResponse().id_token
+
+== Success Handling ==
+WM -> WM: setState('connected')
+WM -> AppState: onAuthSuccess(userData)
+activate AppState
+AppState -> AppState: setUser(userData)
+AppState -> WM: Close modal
+deactivate AppState
+WM -> U: Authentication success
+deactivate WM
+
+== Error Handling ==
+alt Authentication Error
+  GAPI -> WM: Error (popup blocked, user denied, etc.)
+  activate WM
+  WM -> WM: setState('error')
+  WM -> WM: setError(errorMessage)
+  WM -> U: Show error message
+  deactivate WM
+end
+
+== Logout Flow ==
+U -> AppState: Click logout
+activate AppState
+AppState -> GAPI: auth2.signOut()
+activate GAPI
+GAPI -> GOAuth: Revoke session
+activate GOAuth
+GOAuth -> GAPI: Confirmation
+deactivate GOAuth
+GAPI -> AppState: Sign out complete
+deactivate GAPI
+AppState -> AppState: setUser(null)
+AppState -> U: Logged out
+deactivate AppState
+
+note over WM, AppState
+  **Key Benefits:**
+  • No page redirects
+  • Modal stays open
+  • Client-side only
+  • Compatible with dePick
+end note
+
+note over GAPI, GOAuth
+  **Environment:**
+  • VITE_GOOGLE_CLIENT_ID
+  • Authorized Origin: localhost:5173
+  • No callback URLs needed
+end note
+
+@enduml

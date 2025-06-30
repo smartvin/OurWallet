@@ -6,25 +6,30 @@
 
 ### Functional Requirements
 
-1. **Wallet Support**
+1. **Social Login (using OAuth) Support**
+   - Support Google login
+   - Support LINE login based on LIFF framework both for web-based login and as LINE miniApp
+   - Support Telegram login (Telegram mini app)
+
+2. **Wallet Support**
    - Support KAIA wallet (Kaikas) connections via KAIA ethers extension
    - Support OKX wallet connections via standard Web3 interface
    - Provide unified interface for wallet operations across different providers
    - Support for social logins (Google OAuth, LINE Login) integration points
 
-2. **User Interface**
+3. **User Interface**
    - Display modal UI matching provided screenshot design
    - Show wallet connection options with distinctive icons
    - Provide visual feedback for connection states
    - Responsive design compatible with mobile and desktop
 
-3. **Connection Management**
+4. **Connection Management**
    - Handle connection states: disconnected, connecting, connected, error
    - Automatically switch networks to KAIA mainnet (Chain ID: 8217)
    - Graceful error handling for missing wallets and failed connections
    - Maintain connection state throughout user session
 
-4. **Network Operations**
+5. **Network Operations**
    - Detect and connect to KAIA blockchain
    - Support network switching with user consent
    - Add KAIA network configuration if not present in wallet

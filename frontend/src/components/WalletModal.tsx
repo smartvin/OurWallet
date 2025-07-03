@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useGoogleLogin } from '@react-oauth/google';
+import liff from '@line/liff';
 
 interface WalletModalProps {
   onClose: () => void;
@@ -28,6 +29,9 @@ const WalletModal: React.FC<WalletModalProps> = ({ onClose, onAuthSuccess }) => 
           break;
         case 'okx':
           userData = await handleOkxWallet();
+          break;
+        case 'line':
+          userData = await handleLineWallet();
           break;
         default:
           throw new Error('Unsupported provider');
@@ -115,6 +119,42 @@ const WalletModal: React.FC<WalletModalProps> = ({ onClose, onAuthSuccess }) => 
     };
   };
 
+  const handleLineWallet = async () => {
+    const liffId = import.meta.env.VITE_LINE_LIFF_ID;
+    if (!liffId) {
+      throw new Error('LINE LIFF ID not configured');
+    }
+
+    // Promise wrapper for liff.init() callback constraint
+    return new Promise((resolve, reject) => {
+      liff.init({ liffId }).then(() => {
+        try {
+          if (liff.isLoggedIn()) {
+            const decodedToken = liff.getDecodedIDToken();
+            if (decodedToken && decodedToken.sub) {
+              resolve({
+                provider: 'line',
+                lineID: decodedToken.sub,
+                displayName: decodedToken.name || '',
+                pictureUrl: decodedToken.picture || '',
+                email: decodedToken.email || ''
+              });
+            } else {
+              reject(new Error('Unable to get LINE user data'));
+            }
+          } else {
+            liff.login();
+            reject(new Error('LINE login required'));
+          }
+        } catch (error) {
+          reject(new Error('LINE authentication failed'));
+        }
+      }).catch((error) => {
+        reject(new Error('LINE LIFF initialization failed'));
+      });
+    });
+  };
+
   const handleOverlayClick = (e: React.MouseEvent) => {
     if (e.target === e.currentTarget) {
       onClose();
@@ -151,8 +191,8 @@ const WalletModal: React.FC<WalletModalProps> = ({ onClose, onAuthSuccess }) => 
 
             <button 
               className="wallet-button line" 
-              disabled
-              title="LINE login will be added in Phase 2"
+              onClick={() => handleConnect('line')}
+              disabled={connectionState === 'connecting'}
             >
               <div className="wallet-icon line-icon">💬</div>
               <span>Connect with LINE</span>

@@ -4,14 +4,12 @@
   "description": "Secure wallet management system",
   "main": "dist/main.js",
   "scripts": {
-    "build": "tsc",
+    "build": "npm run build:frontend",
     "build:frontend": "vite build",
-    "start": "node dist/main.js",
-    "dev": "ts-node-dev --respawn src/main.ts",
+    "dev": "npm run dev:frontend",
     "dev:frontend": "vite",
-    "dev:both": "concurrently \"npm run dev\" \"npm run dev:frontend\"",
     "test": "jest",
-    "lint": "eslint \"{src,apps,libs,test}/**/*.ts\""
+    "lint": "eslint \"frontend/src/**/*.{ts,tsx}\""
   },
   "dependencies": {
     "@kaiachain/ethers-ext": "^2.0.7",
@@ -25,9 +23,7 @@
     "@okxweb3/coin-ethereum": "^1.1.2",
     "@okxweb3/crypto-lib": "^1.0.12",
     "@react-oauth/google": "^0.12.2",
-    "@types/express-session": "^1.18.1",
     "ethers": "^6.0.0",
-    "express-session": "^1.18.1",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
     "reflect-metadata": "^0.1.14",

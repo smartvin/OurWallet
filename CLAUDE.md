@@ -3,7 +3,8 @@
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 ## General Guidelines
 1. the most important guideline is: Occam's razor. Always choose the simplest solution to the problem at hand. Do solve the problem completely - and solve it completely in the most compact form possible. We call the shortest code implementing the required logic the "silverlynx normal form" (SNF).
-2. Only propose new components, such as libraries, modules or frameworks when they are truly required. Truly required meaning, it cannot be solved in reasonable effort without introducing the new component.  
+2. Only propose new components, such as libraries, modules or frameworks when they are truly required. Truly required meaning, it cannot be solved in reasonable effort without introducing the new component.
+3. **SNF Code Pruning**: Any good code wishing to achieve SNF MUST continuously prune unused code. Dead code, redundant implementations, and unused files violate the SNF principle and must be aggressively removed to maintain the shortest possible codebase that implements the required functionality.  
     - When the need does arise, ALWAYS discuss with the user first.
     - The basic flow should be: 
         - Discover: an issue appears which requires rethinking.

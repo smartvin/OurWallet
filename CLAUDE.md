@@ -4,7 +4,31 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## General Guidelines
 1. the most important guideline is: Occam's razor. Always choose the simplest solution to the problem at hand. Do solve the problem completely - and solve it completely in the most compact form possible. We call the shortest code implementing the required logic the "silverlynx normal form" (SNF).
 2. Only propose new components, such as libraries, modules or frameworks when they are truly required. Truly required meaning, it cannot be solved in reasonable effort without introducing the new component.
-3. **SNF Code Pruning**: Any good code wishing to achieve SNF MUST continuously prune unused code. Dead code, redundant implementations, and unused files violate the SNF principle and must be aggressively removed to maintain the shortest possible codebase that implements the required functionality.  
+3. **SNF Code Pruning**: Any good code wishing to achieve SNF MUST continuously prune unused code. Dead code, redundant implementations, and unused files violate the SNF principle and must be aggressively removed to maintain the shortest possible codebase that implements the required functionality.
+
+## SNF Debugging Methodology
+When encountering compilation errors or issues, apply the **"Question Before Fix"** approach:
+
+### Error Triage Protocol
+1. **Question First**: Before fixing any error, ask "Why is this code being compiled/executed?"
+2. **Call Flow Analysis**: Trace from working entry points to verify if erroring code is actually reachable
+3. **Overgrowth Detection**: If code is unreachable from working flows, it's likely overgrowth to be pruned
+4. **SNF Principle**: Prefer deletion over dependency addition when fixing compilation errors
+
+### Iterative Pruning Process
+1. **Identify redundant implementations** (multiple files doing the same thing)
+2. **Trace dependency chains** (imports, references, configurations)  
+3. **Verify isolation** before deletion (confirm no working code depends on it)
+4. **Cascade cleanup** (remove references in imports, configs, package.json)
+5. **Test at each step** (npm run build/test to verify nothing breaks)
+
+### The Overgrowth Heuristic
+- If fixing an error requires **adding dependencies** → question if the erroring code is needed
+- If multiple files implement the same functionality → **one is likely dead code**
+- If a file isn't imported from any working entry point → **it's overgrowth**
+- If removing code creates new cleanup opportunities → **follow the cascade**
+
+**Remember**: Every line of code is guilty until proven innocent by call flow analysis.  
     - When the need does arise, ALWAYS discuss with the user first.
     - The basic flow should be: 
         - Discover: an issue appears which requires rethinking.

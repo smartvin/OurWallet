@@ -1,0 +1,105 @@
+@startuml LINE OAuth2 Backend Callback Sequence
+!theme aws-orange
+title LINE OAuth 2.0 Authentication with Backend Callback\n(CORS-Free Production Architecture)
+
+actor User as U
+participant "Frontend\n(line.depick.wtf)" as FE
+participant "Backend\n(api.depick.wtf)" as BE
+participant "LINE Platform\n(access.line.me)" as LINE
+database "Backend Storage\n(nonce, sessions)" as DB
+
+== Initialization ==
+U -> FE: Click "Connect with LINE"
+activate FE
+
+FE -> BE: GET /auth/line/nonce
+activate BE
+BE -> DB: Generate & store nonce
+BE --> FE: { nonce, nonceId }
+deactivate BE
+
+== OAuth Authorization Request ==
+FE -> FE: Build OAuth URL\n(backend callback URL)
+note right of FE
+  OAuth URL:
+  https://access.line.me/oauth2/v2.1/authorize?
+  response_type=code&
+  client_id=2007331425&
+  redirect_uri=https://api.depick.wtf/auth/line/callback&
+  scope=profile%20openid&
+  state=nonceId&
+  bot_prompt=aggressive&
+  nonce=nonce
+end note
+
+FE -> U: Redirect to LINE OAuth
+deactivate FE
+
+U -> LINE: Access OAuth URL
+activate LINE
+
+== LINE Authentication & Consent ==
+LINE -> U: Show login screen
+U -> LINE: Enter credentials
+
+LINE -> U: Show consent screen\n+ Official Account add prompt
+note right of LINE
+  bot_prompt=aggressive forces
+  Official Account friend addition
+end note
+
+U -> LINE: Consent + Add Official Account
+LINE -> LINE: Process authentication\n& authorization
+
+== Backend Callback (CORS-Free) ==
+LINE -> BE: Redirect with auth code\nGET /auth/line/callback?code=AUTH_CODE&state=nonceId
+deactivate LINE
+activate BE
+
+BE -> DB: Verify state (nonceId)
+BE -> DB: Retrieve stored nonce
+
+== Token Exchange ==
+BE -> LINE: POST /oauth2/v2.1/token\n(exchange code for tokens)
+activate LINE
+LINE --> BE: { access_token, id_token }
+deactivate LINE
+
+== Token Verification ==
+BE -> LINE: POST /oauth2/v2.1/verify\n(verify ID token + nonce)
+activate LINE
+LINE --> BE: Verified user profile
+deactivate LINE
+
+== User Profile Retrieval ==
+BE -> LINE: GET /v2/profile\n(Bearer access_token)
+activate LINE
+LINE --> BE: Complete user profile
+deactivate LINE
+
+== Session Creation ==
+BE -> BE: Create JWT token\nwith user data
+BE -> DB: Store user session
+BE -> DB: Delete used nonce
+
+== Frontend Redirect ==
+BE -> FE: HTTP 302 Redirect\nhttps://line.depick.wtf?auth_token=JWT&auth_success=true
+deactivate BE
+activate FE
+
+== Frontend Token Processing ==
+FE -> FE: Extract auth_token from URL
+FE -> FE: Decode JWT (client-side)
+FE -> FE: Clean URL (remove token)
+
+FE -> U: Authentication successful\n(display user info)
+deactivate FE
+
+== Optional: Subsequent API Calls ==
+FE -> BE: API calls with JWT token\nAuthorization: Bearer JWT
+activate BE
+BE -> BE: Validate JWT signature
+BE --> FE: Protected resources
+deactivate BE
+
+@enduml

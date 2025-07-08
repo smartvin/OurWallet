@@ -28,7 +28,16 @@ When encountering compilation errors or issues, apply the **"Question Before Fix
 - If a file isn't imported from any working entry point → **it's overgrowth**
 - If removing code creates new cleanup opportunities → **follow the cascade**
 
-**Remember**: Every line of code is guilty until proven innocent by call flow analysis.  
+**Remember**: Every line of code is guilty until proven innocent by call flow analysis.
+
+### Function Modification Protocol
+**CRITICAL**: Before modifying existing function signatures:
+1. **Always discuss with user first** - Never change function parameters without confirmation
+2. **Analyze existing callers** - Understand who calls this function and how
+3. **Preserve interfaces** - Maintain existing return types and parameter structures
+4. **Add new functions** - Prefer adding new functions over modifying existing ones
+5. **SNF principle** - Existing working code should not be altered unless absolutely necessary
+
     - When the need does arise, ALWAYS discuss with the user first.
     - The basic flow should be: 
         - Discover: an issue appears which requires rethinking.

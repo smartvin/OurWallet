@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { GoogleOAuthProvider } from '@react-oauth/google';
 import WalletModal from './components/WalletModal';
 import './App.css';
@@ -17,6 +17,93 @@ function App() {
   const handleLogout = () => {
     setUser(null);
   };
+
+  // Check for LINE OAuth callback on page load
+  useEffect(() => {
+    const checkLineCallback = async () => {
+      // Persistent logging function
+      const logDebug = (message: string, data?: any) => {
+        console.log(message, data);
+        try {
+          const logs = JSON.parse(sessionStorage.getItem('line_debug_logs') || '[]');
+          logs.push({ timestamp: new Date().toISOString(), message, data });
+          sessionStorage.setItem('line_debug_logs', JSON.stringify(logs.slice(-20)));
+        } catch (error) {
+          const logs = [{ timestamp: new Date().toISOString(), message, data }];
+          sessionStorage.setItem('line_debug_logs', JSON.stringify(logs));
+        }
+      };
+
+      const urlParams = new URLSearchParams(window.location.search);
+      const authToken = urlParams.get('auth_token');
+      const authSuccess = urlParams.get('auth_success') === 'true';
+      const authError = urlParams.get('auth_error');
+      
+      logDebug('🔷 App mounted - checking for LINE OAuth callback:', {
+        fullUrl: window.location.href,
+        search: window.location.search,
+        rawParams: Object.fromEntries(urlParams.entries()),
+        authToken: authToken,
+        authTokenLength: authToken?.length || 0,
+        authSuccess: authSuccess,
+        authError: authError || 'none',
+        shouldDetectCallback: !!(authSuccess && authToken)
+      });
+      
+      if (authSuccess && authToken) {
+        logDebug('✅ LINE OAuth callback detected in App! Processing authentication token...');
+        
+        try {
+          // Decode JWT token (client-side)
+          logDebug('🔷 Starting JWT token decode, token length:', authToken.length);
+          const tokenParts = authToken.split('.');
+          logDebug('🔷 JWT token parts:', { partsCount: tokenParts.length, hasParts: tokenParts.map(p => !!p) });
+          
+          const tokenPayload = JSON.parse(atob(tokenParts[1]));
+          logDebug('✅ JWT token decoded successfully:', {
+            lineId: tokenPayload.lineId,
+            displayName: tokenPayload.displayName,
+            verified: tokenPayload.verified,
+            fullPayload: tokenPayload
+          });
+          
+          const userData = {
+            provider: 'line',
+            lineID: tokenPayload.lineId,
+            displayName: tokenPayload.displayName,
+            pictureUrl: tokenPayload.pictureUrl,
+            verified: tokenPayload.verified,
+            token: authToken
+          };
+          
+          // Clean up URL
+          window.history.replaceState({}, document.title, window.location.pathname);
+          
+          logDebug('🔷 Calling handleAuthSuccess with userData:', userData);
+          
+          try {
+            handleAuthSuccess(userData);
+            logDebug('✅ handleAuthSuccess call completed successfully');
+          } catch (authError) {
+            logDebug('❌ handleAuthSuccess call failed:', authError);
+            throw authError;
+          }
+          
+          logDebug('✅ LINE authentication process completed successfully in App');
+        } catch (err: any) {
+          logDebug('❌ LINE token processing failed in App:', err);
+          // Could set an error state here if needed
+        }
+      } else if (authError) {
+        logDebug('❌ LINE OAuth error detected in App:', authError);
+        // Could set an error state here if needed
+      } else {
+        logDebug('🔷 No LINE OAuth callback detected - normal page load');
+      }
+    };
+
+    checkLineCallback();
+  }, []);
 
   if (!googleClientId) {
     return <div>Error: VITE_GOOGLE_CLIENT_ID not configured</div>;

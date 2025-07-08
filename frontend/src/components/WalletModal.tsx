@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useGoogleLogin } from '@react-oauth/google';
 import liff from '@line/liff';
 
@@ -120,40 +120,92 @@ const WalletModal: React.FC<WalletModalProps> = ({ onClose, onAuthSuccess }) => 
   };
 
   const handleLineWallet = async () => {
-    const liffId = import.meta.env.VITE_LINE_LIFF_ID;
+    // Persistent logging function
+    const logDebug = (message: string, data?: any) => {
+      console.log(message, data);
+      const logs = JSON.parse(sessionStorage.getItem('line_debug_logs') || '[]');
+      logs.push({ timestamp: new Date().toISOString(), message, data });
+      sessionStorage.setItem('line_debug_logs', JSON.stringify(logs.slice(-20))); // Keep last 20 logs
+    };
+
+    logDebug('🔷 handleLineWallet: Starting LINE authentication');
+    
+    const liffId = (import.meta as any).env.VITE_LINE_LIFF_ID;
+    const backendUrl = (import.meta as any).env.VITE_BACKEND_URL || 'http://localhost:3001';
+    
+    logDebug('🔷 Configuration:', { liffId, backendUrl });
+    
     if (!liffId) {
       throw new Error('LINE LIFF ID not configured');
     }
 
-    // Promise wrapper for liff.init() callback constraint
+    // Simple LIFF authentication flow
+    logDebug('🔷 Starting LIFF authentication flow');
+    
     return new Promise((resolve, reject) => {
+      // Step 1: Initialize LIFF SDK
+      logDebug('🔷 Initializing LIFF SDK');
       liff.init({ liffId }).then(() => {
-        try {
-          if (liff.isLoggedIn()) {
-            const decodedToken = liff.getDecodedIDToken();
-            if (decodedToken && decodedToken.sub) {
-              resolve({
-                provider: 'line',
-                lineID: decodedToken.sub,
-                displayName: decodedToken.name || '',
-                pictureUrl: decodedToken.picture || '',
-                email: decodedToken.email || ''
-              });
-            } else {
-              reject(new Error('Unable to get LINE user data'));
-            }
-          } else {
-            liff.login();
-            reject(new Error('LINE login required'));
-          }
-        } catch (error) {
-          reject(new Error('LINE authentication failed'));
+        logDebug('✅ LIFF initialized successfully');
+        logDebug('🔷 LIFF login status:', liff.isLoggedIn());
+        
+        // Step 2: Handle login state
+        if (!liff.isLoggedIn()) {
+          logDebug('🔷 User not logged in, calling liff.login()');
+          liff.login(); // This will handle OpenID Connect + bot_prompt automatically
+          return; // liff.login() redirects, so execution stops here
         }
-      }).catch((error) => {
-        reject(new Error('LINE LIFF initialization failed'));
+        
+        // Step 3: Get ID token for backend verification
+        const idToken = liff.getIDToken();
+        logDebug('🔷 ID Token available:', !!idToken);
+        
+        if (idToken) {
+          logDebug('✅ ID token found, verifying with backend');
+          
+          // Verify ID token with backend (LIFF handles nonce internally)
+          verifyLiffIdTokenWithBackend(idToken, backendUrl)
+            .then(result => {
+              logDebug('✅ Token verification successful:', result);
+              resolve(result);
+            })
+            .catch(error => {
+              logDebug('❌ Token verification failed:', error);
+              reject(error);
+            });
+        } else {
+          logDebug('❌ No ID token available');
+          reject(new Error('No ID token available'));
+        }
+      }).catch(error => {
+        logDebug('❌ LIFF initialization failed:', error);
+        reject(new Error('LIFF initialization failed'));
       });
     });
   };
+
+  // Helper function for LIFF ID token verification
+  const verifyLiffIdTokenWithBackend = async (idToken: string, backendUrl: string) => {
+    const verifyResponse = await fetch(`${backendUrl}/auth/line/verify`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ idToken })
+    });
+
+    if (!verifyResponse.ok) {
+      throw new Error('LINE token verification failed');
+    }
+
+    const data = await verifyResponse.json();
+    
+    return {
+      provider: 'line',
+      lineID: data.user.lineID,
+      displayName: data.user.displayName,
+      pictureUrl: data.user.pictureUrl,
+      verified: data.verified
+    };
+  }
 
   const handleOverlayClick = (e: React.MouseEvent) => {
     if (e.target === e.currentTarget) {

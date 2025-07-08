@@ -1,4 +1,4 @@
-import { Controller, Post, Get, Body, HttpException, HttpStatus } from '@nestjs/common';
+import { Controller, Post, Body, HttpException, HttpStatus } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
 import { LineAuthService } from './line-auth.service';
 
@@ -7,56 +7,56 @@ import { LineAuthService } from './line-auth.service';
 export class LineAuthController {
   constructor(private readonly lineAuthService: LineAuthService) {}
 
-  @Get('nonce')
-  @ApiOperation({ summary: 'Generate nonce for secure LINE OpenID login' })
-  @ApiResponse({ status: 200, description: 'Nonce generated successfully' })
-  async generateNonce() {
-    try {
-      const { nonce, nonceId } = await this.lineAuthService.generateNonce();
-      
-      return {
-        success: true,
-        nonce,
-        nonceId
-      };
-    } catch (error) {
-      throw new HttpException(
-        'Failed to generate nonce',
-        HttpStatus.INTERNAL_SERVER_ERROR
-      );
-    }
-  }
 
   @Post('verify')
-  @ApiOperation({ summary: 'Verify LINE ID token with OpenID Connect protocol' })
+  @ApiOperation({ summary: 'Verify LIFF ID token with LINE Platform' })
   @ApiResponse({ status: 200, description: 'Token verified and user authenticated' })
-  @ApiResponse({ status: 400, description: 'Invalid ID token or nonce' })
-  async verifyIdToken(@Body() body: { idToken: string; nonceId: string }) {
+  @ApiResponse({ status: 400, description: 'Invalid ID token' })
+  async verifyIdToken(@Body() body: { idToken: string }) {
+    console.log('🔷 [LINE AUTH] POST /auth/line/verify - Starting LIFF token verification');
+    console.log('🔷 [LINE AUTH] Request body received:', { 
+      hasIdToken: !!body.idToken,
+      idTokenLength: body.idToken?.length 
+    });
+    
     try {
-      const { idToken, nonceId } = body;
+      const { idToken } = body;
       
-      if (!idToken || !nonceId) {
+      if (!idToken) {
+        console.log('❌ [LINE AUTH] Missing ID token in request');
         throw new HttpException(
-          'ID token and nonce ID are required',
+          'ID token is required',
           HttpStatus.BAD_REQUEST
         );
       }
 
-      // Verify ID token with LINE Platform using OpenID Connect
-      const verificationResult = await this.lineAuthService.verifyIdTokenWithNonce(
-        idToken,
-        nonceId
-      );
+      console.log('✅ [LINE AUTH] ID token received, calling verification service');
+      
+      // Verify LIFF ID token with LINE Platform (LIFF handles nonce internally)
+      const verificationResult = await this.lineAuthService.verifyLiffIdToken(idToken);
+
+      console.log('🔷 [LINE AUTH] Verification result:', {
+        valid: verificationResult.valid,
+        hasUser: !!verificationResult.user
+      });
 
       if (!verificationResult.valid) {
+        console.log('❌ [LINE AUTH] Token verification failed');
         throw new HttpException(
-          'Invalid ID token or nonce verification failed',
+          'Invalid ID token verification failed',
           HttpStatus.UNAUTHORIZED
         );
       }
 
+      console.log('✅ [LINE AUTH] Token verification successful, preparing response');
+      console.log('🔷 [LINE AUTH] User data:', {
+        userId: verificationResult.user!.userId,
+        displayName: verificationResult.user!.displayName,
+        hasPictureUrl: !!verificationResult.user!.pictureUrl
+      });
+
       // Return user data for DePick.BE integration
-      return {
+      const response = {
         success: true,
         user: {
           lineID: verificationResult.user!.userId,
@@ -70,12 +70,16 @@ export class LineAuthController {
         verified: true
       };
 
+      console.log('✅ [LINE AUTH] Sending successful response to frontend');
+      return response;
+
     } catch (error) {
       if (error instanceof HttpException) {
+        console.log('❌ [LINE AUTH] HTTP Exception:', error.message);
         throw error;
       }
       
-      console.error('LINE ID token verification error:', error);
+      console.error('❌ [LINE AUTH] Unexpected error during verification:', error);
       throw new HttpException(
         'LINE authentication failed',
         HttpStatus.INTERNAL_SERVER_ERROR
@@ -83,36 +87,4 @@ export class LineAuthController {
     }
   }
 
-  @Post('callback')
-  @ApiOperation({ summary: 'Handle OAuth2 callback for bot_prompt flow' })
-  @ApiResponse({ status: 200, description: 'OAuth2 callback handled successfully' })
-  async handleOAuth2Callback(@Body() body: { code: string }) {
-    try {
-      const { code } = body;
-      
-      if (!code) {
-        throw new HttpException(
-          'Authorization code is required',
-          HttpStatus.BAD_REQUEST
-        );
-      }
-
-      // Exchange code for tokens (includes bot_prompt flow)
-      const result = await this.lineAuthService.exchangeCodeForTokens(code);
-
-      return {
-        success: true,
-        user: result.user,
-        requiresNonceVerification: true,
-        message: 'OAuth2 callback successful. Please complete OpenID verification.'
-      };
-
-    } catch (error) {
-      console.error('LINE OAuth2 callback error:', error);
-      throw new HttpException(
-        'OAuth2 callback failed',
-        HttpStatus.INTERNAL_SERVER_ERROR
-      );
-    }
-  }
 }

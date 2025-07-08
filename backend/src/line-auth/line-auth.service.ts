@@ -1,11 +1,4 @@
 import { Injectable } from '@nestjs/common';
-import { randomBytes } from 'crypto';
-
-interface NonceRecord {
-  nonce: string;
-  createdAt: Date;
-  used: boolean;
-}
 
 interface VerificationResult {
   valid: boolean;
@@ -19,74 +12,61 @@ interface VerificationResult {
 
 @Injectable()
 export class LineAuthService {
-  // In-memory storage for demo - replace with database in DePick.BE
-  private nonceStore = new Map<string, NonceRecord>();
 
   /**
-   * Generate nonce and nonceID for OpenID Connect security
+   * Verify LIFF ID token with LINE Platform (LIFF handles nonce internally)
    */
-  async generateNonce(): Promise<{ nonce: string; nonceId: string }> {
-    const nonce = randomBytes(16).toString('hex');
-    const nonceId = randomBytes(8).toString('hex');
+  async verifyLiffIdToken(idToken: string): Promise<VerificationResult> {
+    console.log('🔷 [LINE SERVICE] Starting LIFF ID token verification');
+    console.log('🔷 [LINE SERVICE] ID token length:', idToken.length);
+    console.log('🔷 [LINE SERVICE] Using client_id:', process.env.LINE_CHANNEL_ID || '2007331425');
     
-    // Store nonce with expiration (5 minutes)
-    this.nonceStore.set(nonceId, {
-      nonce,
-      createdAt: new Date(),
-      used: false
-    });
-
-    // Cleanup expired nonces (older than 5 minutes)
-    this.cleanupExpiredNonces();
-
-    return { nonce, nonceId };
-  }
-
-  /**
-   * Verify ID token with LINE Platform using OpenID Connect protocol
-   */
-  async verifyIdTokenWithNonce(idToken: string, nonceId: string): Promise<VerificationResult> {
-    // Retrieve nonce from storage
-    const nonceRecord = this.nonceStore.get(nonceId);
-    
-    if (!nonceRecord || nonceRecord.used) {
-      return { valid: false };
-    }
-
-    // Check if nonce is expired (5 minutes)
-    const now = new Date();
-    const expirationTime = new Date(nonceRecord.createdAt.getTime() + 5 * 60 * 1000);
-    
-    if (now > expirationTime) {
-      this.nonceStore.delete(nonceId);
-      return { valid: false };
-    }
-
     try {
-      // Verify ID token with LINE Platform (OpenID Connect endpoint)
+      // Verify ID token with LINE Platform (LIFF handles nonce internally)
+      console.log('🔷 [LINE SERVICE] Making request to LINE Platform verification endpoint');
+      console.log('🔷 [LINE SERVICE] POST https://api.line.me/oauth2/v2.1/verify');
+      
+      const requestBody = new URLSearchParams({
+        id_token: idToken,
+        client_id: process.env.LINE_CHANNEL_ID || '2007331425'
+        // No nonce parameter - LIFF handles this internally
+      });
+      
+      console.log('🔷 [LINE SERVICE] Request body params:', {
+        hasIdToken: requestBody.has('id_token'),
+        clientId: requestBody.get('client_id')
+      });
+      
       const verificationResponse = await fetch('https://api.line.me/oauth2/v2.1/verify', {
         method: 'POST',
         headers: { 
           'Content-Type': 'application/x-www-form-urlencoded',
         },
-        body: new URLSearchParams({
-          id_token: idToken,
-          client_id: process.env.LINE_CHANNEL_ID || '2007331425',
-          nonce: nonceRecord.nonce
-        })
+        body: requestBody
       });
 
+      console.log('🔷 [LINE SERVICE] LINE Platform response status:', verificationResponse.status);
+      console.log('🔷 [LINE SERVICE] LINE Platform response ok:', verificationResponse.ok);
+
       if (!verificationResponse.ok) {
-        console.error('LINE verification failed:', await verificationResponse.text());
+        const errorText = await verificationResponse.text();
+        console.error('❌ [LINE SERVICE] LINE verification failed with status:', verificationResponse.status);
+        console.error('❌ [LINE SERVICE] Error response:', errorText);
         return { valid: false };
       }
 
+      console.log('✅ [LINE SERVICE] LINE Platform verification successful, parsing response');
       const verificationData = await verificationResponse.json();
+      
+      console.log('🔷 [LINE SERVICE] Parsed verification data:', {
+        hasSub: !!verificationData.sub,
+        hasName: !!verificationData.name,
+        hasPicture: !!verificationData.picture,
+        hasEmail: !!verificationData.email,
+        sub: verificationData.sub
+      });
 
-      // Mark nonce as used and delete it
-      this.nonceStore.delete(nonceId);
-
-      return {
+      const result = {
         valid: true,
         user: {
           userId: verificationData.sub,
@@ -96,67 +76,19 @@ export class LineAuthService {
         }
       };
 
+      console.log('✅ [LINE SERVICE] Verification successful, returning user data');
+      return result;
+
     } catch (error) {
-      console.error('Error verifying ID token:', error);
+      console.error('❌ [LINE SERVICE] Exception during LIFF ID token verification:', error);
+      console.error('❌ [LINE SERVICE] Error details:', {
+        name: error instanceof Error ? error.name : 'Unknown',
+        message: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined
+      });
       return { valid: false };
     }
   }
 
-  /**
-   * Exchange OAuth2 authorization code for tokens (supports bot_prompt flow)
-   */
-  async exchangeCodeForTokens(code: string): Promise<any> {
-    const tokenResponse = await fetch('https://api.line.me/oauth2/v2.1/token', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams({
-        grant_type: 'authorization_code',
-        code: code,
-        redirect_uri: process.env.LINE_REDIRECT_URI || 'http://localhost:5173/',
-        client_id: process.env.LINE_CHANNEL_ID || '2007331425',
-        client_secret: process.env.LINE_CHANNEL_SECRET!
-      })
-    });
 
-    if (!tokenResponse.ok) {
-      const error = await tokenResponse.text();
-      throw new Error(`Token exchange failed: ${error}`);
-    }
-
-    const tokens = await tokenResponse.json();
-
-    // Get user profile using access token
-    const profileResponse = await fetch('https://api.line.me/v2/profile', {
-      headers: { 'Authorization': `Bearer ${tokens.access_token}` }
-    });
-
-    if (!profileResponse.ok) {
-      throw new Error('Failed to get user profile');
-    }
-
-    const userProfile = await profileResponse.json();
-
-    return {
-      tokens,
-      user: {
-        userId: userProfile.userId,
-        displayName: userProfile.displayName,
-        pictureUrl: userProfile.pictureUrl
-      }
-    };
-  }
-
-  /**
-   * Clean up expired nonces (older than 5 minutes)
-   */
-  private cleanupExpiredNonces(): void {
-    const now = new Date();
-    const expirationTime = 5 * 60 * 1000; // 5 minutes
-
-    for (const [nonceId, record] of this.nonceStore.entries()) {
-      if (now.getTime() - record.createdAt.getTime() > expirationTime) {
-        this.nonceStore.delete(nonceId);
-      }
-    }
-  }
 }

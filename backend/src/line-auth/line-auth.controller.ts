@@ -1,4 +1,5 @@
-import { Controller, Post, Body, HttpException, HttpStatus } from '@nestjs/common';
+import { Controller, Get, Query, HttpException, HttpStatus, Res } from '@nestjs/common';
+import { Response } from 'express';
 import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
 import { LineAuthService } from './line-auth.service';
 
@@ -8,82 +9,89 @@ export class LineAuthController {
   constructor(private readonly lineAuthService: LineAuthService) {}
 
 
-  @Post('verify')
-  @ApiOperation({ summary: 'Verify LIFF ID token with LINE Platform' })
-  @ApiResponse({ status: 200, description: 'Token verified and user authenticated' })
-  @ApiResponse({ status: 400, description: 'Invalid ID token' })
-  async verifyIdToken(@Body() body: { idToken: string }) {
-    console.log('🔷 [LINE AUTH] POST /auth/line/verify - Starting LIFF token verification');
-    console.log('🔷 [LINE AUTH] Request body received:', { 
-      hasIdToken: !!body.idToken,
-      idTokenLength: body.idToken?.length 
-    });
+  @Get('nonce')
+  @ApiOperation({ summary: 'Generate nonce for OAuth 2.0 security' })
+  @ApiResponse({ status: 200, description: 'Nonce generated successfully' })
+  async generateNonce() {
+    console.log('🔷 [LINE AUTH] GET /auth/line/nonce - Generating nonce');
     
     try {
-      const { idToken } = body;
+      const { nonce, nonceId } = await this.lineAuthService.generateNonce();
       
-      if (!idToken) {
-        console.log('❌ [LINE AUTH] Missing ID token in request');
-        throw new HttpException(
-          'ID token is required',
-          HttpStatus.BAD_REQUEST
-        );
-      }
-
-      console.log('✅ [LINE AUTH] ID token received, calling verification service');
-      
-      // Verify LIFF ID token with LINE Platform (LIFF handles nonce internally)
-      const verificationResult = await this.lineAuthService.verifyLiffIdToken(idToken);
-
-      console.log('🔷 [LINE AUTH] Verification result:', {
-        valid: verificationResult.valid,
-        hasUser: !!verificationResult.user
-      });
-
-      if (!verificationResult.valid) {
-        console.log('❌ [LINE AUTH] Token verification failed');
-        throw new HttpException(
-          'Invalid ID token verification failed',
-          HttpStatus.UNAUTHORIZED
-        );
-      }
-
-      console.log('✅ [LINE AUTH] Token verification successful, preparing response');
-      console.log('🔷 [LINE AUTH] User data:', {
-        userId: verificationResult.user!.userId,
-        displayName: verificationResult.user!.displayName,
-        hasPictureUrl: !!verificationResult.user!.pictureUrl
-      });
-
-      // Return user data for DePick.BE integration
-      const response = {
+      console.log('✅ [LINE AUTH] Nonce generated successfully');
+      return {
         success: true,
-        user: {
-          lineID: verificationResult.user!.userId,
-          displayName: verificationResult.user!.displayName,
-          pictureUrl: verificationResult.user!.pictureUrl,
-          // Standard format for DePick.BE integration
-          id: verificationResult.user!.userId,
-          username: verificationResult.user!.displayName,
-          avatar: verificationResult.user!.pictureUrl
-        },
-        verified: true
+        nonce,
+        nonceId
       };
-
-      console.log('✅ [LINE AUTH] Sending successful response to frontend');
-      return response;
-
     } catch (error) {
-      if (error instanceof HttpException) {
-        console.log('❌ [LINE AUTH] HTTP Exception:', error.message);
-        throw error;
-      }
-      
-      console.error('❌ [LINE AUTH] Unexpected error during verification:', error);
+      console.error('❌ [LINE AUTH] Nonce generation failed:', error);
       throw new HttpException(
-        'LINE authentication failed',
+        'Failed to generate nonce',
         HttpStatus.INTERNAL_SERVER_ERROR
       );
+    }
+  }
+
+  @Get('callback')
+  @ApiOperation({ summary: 'Handle OAuth 2.0 callback from LINE Platform' })
+  @ApiResponse({ status: 302, description: 'Redirect to frontend with auth token' })
+  @ApiResponse({ status: 400, description: 'Invalid authorization code or state' })
+  async handleOAuthCallback(
+    @Query('code') code: string,
+    @Query('state') state: string,
+    @Res() res: Response,
+    @Query('error') error?: string
+  ) {
+    console.log('🔷 [LINE AUTH] GET /auth/line/callback - OAuth callback received');
+    console.log('🔷 [LINE AUTH] Callback params:', {
+      hasCode: !!code,
+      hasState: !!state,
+      error: error || 'none',
+      codeLength: code?.length
+    });
+
+    try {
+      // Check for OAuth errors
+      if (error) {
+        console.error('❌ [LINE AUTH] OAuth error from LINE:', error);
+        const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+        return res.redirect(`${frontendUrl}?auth_error=${encodeURIComponent(error)}`);
+      }
+
+      // Validate required parameters
+      if (!code || !state) {
+        console.error('❌ [LINE AUTH] Missing required parameters');
+        const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+        return res.redirect(`${frontendUrl}?auth_error=missing_parameters`);
+      }
+
+      console.log('✅ [LINE AUTH] Valid callback parameters, processing OAuth flow');
+      
+      // Handle OAuth callback via service
+      const { userToken, userData } = await this.lineAuthService.handleOAuthCallback(code, state);
+
+      console.log('✅ [LINE AUTH] OAuth processing successful, redirecting to frontend');
+      console.log('🔷 [LINE AUTH] User authenticated:', {
+        lineId: userData.lineId,
+        displayName: userData.displayName
+      });
+
+      // Redirect to frontend with auth token
+      const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+      const redirectUrl = `${frontendUrl}?auth_token=${encodeURIComponent(userToken)}&auth_success=true`;
+      
+      console.log('🔷 [LINE AUTH] Redirecting to:', frontendUrl);
+      return res.redirect(redirectUrl);
+
+    } catch (error) {
+      console.error('❌ [LINE AUTH] OAuth callback processing failed:', error);
+      
+      const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+      const errorMessage = error instanceof Error ? error.message : 'Authentication failed';
+      const errorUrl = `${frontendUrl}?auth_error=${encodeURIComponent(errorMessage)}`;
+      
+      return res.redirect(errorUrl);
     }
   }
 

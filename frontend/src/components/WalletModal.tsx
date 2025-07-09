@@ -190,14 +190,14 @@ const WalletModal: React.FC<WalletModalProps> = ({ onClose, onAuthSuccess }) => 
       // Step 2: Build OAuth 2.0 URL with backend callback
       const callbackUrl = `${backendUrl}/auth/line/callback`;
       
-      // When in LIFF context, we still use OAuth but the flow is the same
+      // Build OAuth URL - bot_prompt should NOT be URL encoded
       const authUrl = `https://access.line.me/oauth2/v2.1/authorize?` +
         `response_type=code&` +
         `client_id=${channelId}&` +
         `redirect_uri=${encodeURIComponent(callbackUrl)}&` +
-        `scope=${encodeURIComponent('profile openid')}&` +
         `state=${encodeURIComponent(nonceId)}&` +
         `bot_prompt=aggressive&` +
+        `scope=${encodeURIComponent('profile openid')}&` +
         `nonce=${nonce}`;
       
       logDebug('🔷 OAuth URL built:', {

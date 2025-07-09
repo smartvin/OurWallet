@@ -148,59 +148,60 @@ const WalletModal: React.FC<WalletModalProps> = ({ onClose, onAuthSuccess }) => 
       }
     };
 
-    logDebug('🔷 handleLineWallet: Starting LINE OAuth 2.0 authentication');
+    logDebug('handleLineWallet: Starting LINE OAuth 2.0 authentication');
     
     // Check if we're in LIFF context (arrived via LIFF URL)
     const currentUrl = window.location.href;
     const hasSourceLine = currentUrl.includes('source=line');
-    logDebug('🔷 LIFF context check:', { 
+    logDebug('LIFF context check:', { 
       currentUrl, 
       hasSourceLine,
       inLiffContext: hasSourceLine 
     });
     
-    const channelId = (import.meta as any).env.VITE_LINE_CHANNEL_ID || '2007331425';
-    const backendUrl = (import.meta as any).env.VITE_BACKEND_URL || 'http://localhost:3001';
+    const channelID = (import.meta as any).env.VITE_LINE_CHANNEL_ID || '2007331425';
+    const authURL = (import.meta as any).env.VITE_AUTH_URL || 'https://access.line.me/oauth2/v2.1/authorize';
     
-    logDebug('🔷 Configuration:', { channelId, backendUrl });
+    const backendURL = (import.meta as any).env.VITE_BACKEND_URL || 'http://localhost:3001';
+    const callbackUrl = `${backendURL}/auth/line/callback`;
+    
+    logDebug('Configuration:', { channelID, backendURL });
     
     try {
       // Step 1: Get nonce from backend
-      logDebug('🔷 Requesting nonce from backend', `${backendUrl}/auth/line/nonce`);
-      const nonceResponse = await fetch(`${backendUrl}/auth/line/nonce`, {
+      logDebug('Requesting nonce from backend', `${backendURL}/auth/line/nonce`);
+      const nonceResponse = await fetch(`${backendURL}/auth/line/nonce`, {
         headers: {
           /// @notice only needed for local ngrok tunnels
           'ngrok-skip-browser-warning': 'true'
         }
       });
-      logDebug('🔷 Response status:', nonceResponse.status);
-      logDebug('🔷 Response headers:', Object.fromEntries(nonceResponse.headers.entries()));
+      logDebug('Response status:', nonceResponse.status);
+      logDebug('Response headers:', Object.fromEntries(nonceResponse.headers.entries()));
       
       if (!nonceResponse.ok) {
-        console.log('❌ Failed to get nonce:', nonceResponse.status);
+        console.log('Failed to get nonce:', nonceResponse.status);
         throw new Error('Failed to get authentication nonce');
       }
       
       const responseText = await nonceResponse.text();
-      logDebug('🔷 Raw response text:', responseText);
       
       const { nonce, nonceId } = JSON.parse(responseText);
-      logDebug('✅ Nonce received:', { nonceId });
+      logDebug('Nonce received:', { nonceId });
 
       // Step 2: Build OAuth 2.0 URL with backend callback
-      const callbackUrl = `${backendUrl}/auth/line/callback`;
       
       // Build OAuth URL - bot_prompt should NOT be URL encoded
-      const authUrl = `https://access.line.me/oauth2/v2.1/authorize?` +
+      const fullAuthUrl = `${authURL}` + `?`+ 
         `response_type=code&` +
-        `client_id=${channelId}&` +
+        `client_id=${channelID}&` +
         `redirect_uri=${encodeURIComponent(callbackUrl)}&` +
         `state=${encodeURIComponent(nonceId)}&` +
         `bot_prompt=aggressive&` +
         `scope=${encodeURIComponent('profile openid')}&` +
         `nonce=${nonce}`;
       
-      logDebug('🔷 OAuth URL built:', {
+      logDebug('OAuth URL built:', {
         inLiffContext: hasSourceLine,
         callbackUrl,
         encodedCallbackUrl: encodeURIComponent(callbackUrl),
@@ -208,14 +209,13 @@ const WalletModal: React.FC<WalletModalProps> = ({ onClose, onAuthSuccess }) => 
         hasState: !!nonceId,
         botPrompt: 'aggressive'
       });
-      logDebug('🔷 Complete OAuth URL:', authUrl);
       
       // Step 3: Redirect to LINE OAuth (backend will handle callback)
-      logDebug('🔷 Redirecting to LINE OAuth...');
-      window.location.href = authUrl;
+      logDebug('Redirecting to LINE OAuth...');
+      window.location.href = fullAuthUrl;
       
     } catch (error) {
-      logDebug('❌ OAuth setup failed:', error);
+      logDebug('OAuth setup failed:', error);
       throw new Error('LINE authentication setup failed');
     }
   };

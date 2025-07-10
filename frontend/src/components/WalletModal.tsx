@@ -20,7 +20,7 @@ const WalletModal: React.FC<WalletModalProps> = ({ onClose, onAuthSuccess }) => 
 
     try {
       let userData: any;
-      
+
       switch (provider) {
         case 'google':
           userData = await handleGoogleOAuth();
@@ -32,7 +32,7 @@ const WalletModal: React.FC<WalletModalProps> = ({ onClose, onAuthSuccess }) => 
           userData = await handleOkxWallet();
           break;
         case 'line':
-          userData = await handleLineWallet();
+          userData = await handleLineOAuth();
           break;
         default:
           throw new Error('Unsupported provider');
@@ -55,16 +55,20 @@ const WalletModal: React.FC<WalletModalProps> = ({ onClose, onAuthSuccess }) => 
           headers: { 'Authorization': `Bearer ${response.access_token}` }
         }).then(res => res.json());
 
-        const userData = {
-          provider: 'google',
+        // Save Google user info in registData
+        const googleAuth = {
+          id: googleData.email,
+          loginProvider: 'google',
+          access_token: response.access_token,
+          expireDate: new Date(Date.now() + response.expires_in * 1000).toISOString(),
+          sub: googleData.sub,
           email: googleData.email,
-          name: googleData.name,
-          picture: googleData.picture,
-          token: response.access_token
+          name: googleData.name
         };
+        localStorage.setItem('registData', JSON.stringify(googleAuth));
 
         setConnectionState('connected');
-        onAuthSuccess(userData);
+        onAuthSuccess(googleAuth);
       } catch (error: any) {
         setConnectionState('error');
         setError(error.message || 'Google sign-in failed');
@@ -84,8 +88,8 @@ const WalletModal: React.FC<WalletModalProps> = ({ onClose, onAuthSuccess }) => 
           sessionStorage.setItem('line_debug_logs', JSON.stringify(logs));
         }
       };
-      
-      logDebug('❌ Google login failed:', error);
+
+      logDebug('Google login failed:', error);
       setConnectionState('error');
       setError('Google sign-in failed');
     }
@@ -94,6 +98,93 @@ const WalletModal: React.FC<WalletModalProps> = ({ onClose, onAuthSuccess }) => 
   const handleGoogleOAuth = async () => {
     googleLogin();
   };
+
+  const handleLineOAuth = async () => {
+    // Persistent logging function
+    const logDebug = (message: string, data?: any) => {
+      console.log(message, data);
+      try {
+        const logs = JSON.parse(sessionStorage.getItem('line_debug_logs') || '[]');
+        logs.push({ timestamp: new Date().toISOString(), message, data });
+        sessionStorage.setItem('line_debug_logs', JSON.stringify(logs.slice(-20)));
+      } catch (error) {
+        const logs = [{ timestamp: new Date().toISOString(), message, data }];
+        sessionStorage.setItem('line_debug_logs', JSON.stringify(logs));
+      }
+    };
+
+    logDebug('handleLineOAuth: Starting LINE OAuth 2.0 authentication');
+
+    // Check if we're in LIFF context (arrived via LIFF URL)
+    const currentUrl = window.location.href;
+    const hasSourceLine = currentUrl.includes('source=line');
+    logDebug('LIFF context check:', {
+      currentUrl,
+      hasSourceLine,
+      inLiffContext: hasSourceLine
+    });
+
+    const channelID = (import.meta as any).env.VITE_LINE_CHANNEL_ID || '2007331425';
+    const authURL = (import.meta as any).env.VITE_AUTH_URL || 'https://access.line.me/oauth2/v2.1/authorize';
+
+    const backendURL = (import.meta as any).env.VITE_BACKEND_URL || 'http://localhost:3001';
+    const callbackUrl = `${backendURL}/auth/line/callback`;
+
+    logDebug('Configuration:', { channelID, backendURL });
+
+    try {
+      // Step 1: Get nonce from backend
+      logDebug('Requesting nonce from backend', `${backendURL}/auth/line/nonce`);
+      const nonceResponse = await fetch(`${backendURL}/auth/line/nonce`, {
+        headers: {
+          /// @notice only needed for local ngrok tunnels
+          'ngrok-skip-browser-warning': 'true'
+        }
+      });
+      logDebug('Response status:', nonceResponse.status);
+      logDebug('Response headers:', Object.fromEntries(nonceResponse.headers.entries()));
+
+      if (!nonceResponse.ok) {
+        console.log('Failed to get nonce:', nonceResponse.status);
+        throw new Error('Failed to get authentication nonce');
+      }
+
+      const responseText = await nonceResponse.text();
+
+      const { nonce, nonceId } = JSON.parse(responseText);
+      logDebug('Nonce received:', { nonceId });
+
+      // Step 2: Build OAuth 2.0 URL with backend callback
+
+      // Build OAuth URL - bot_prompt should NOT be URL encoded
+      const fullAuthUrl = `${authURL}` + `?` +
+        `response_type=code&` +
+        `client_id=${channelID}&` +
+        `redirect_uri=${encodeURIComponent(callbackUrl)}&` +
+        `state=${encodeURIComponent(nonceId)}&` +
+        `bot_prompt=aggressive&` +
+        `scope=${encodeURIComponent('profile openid')}&` +
+        `nonce=${nonce}`;
+
+      logDebug('OAuth URL built:', {
+        inLiffContext: hasSourceLine,
+        callbackUrl,
+        encodedCallbackUrl: encodeURIComponent(callbackUrl),
+        hasNonce: !!nonce,
+        hasState: !!nonceId,
+        botPrompt: 'aggressive'
+      });
+
+      // Step 3: Redirect to LINE OAuth (backend will handle callback)
+      logDebug('Redirecting to LINE OAuth...');
+      window.location.href = fullAuthUrl;
+
+    } catch (error) {
+      logDebug('OAuth setup failed:', error);
+      throw new Error('LINE authentication setup failed');
+    }
+  };
+
 
   const handleKaiaWallet = async () => {
     // Use existing KAIA wallet logic (Kaikas uses window.klaytn)
@@ -134,92 +225,6 @@ const WalletModal: React.FC<WalletModalProps> = ({ onClose, onAuthSuccess }) => 
     };
   };
 
-  const handleLineWallet = async () => {
-    // Persistent logging function
-    const logDebug = (message: string, data?: any) => {
-      console.log(message, data);
-      try {
-        const logs = JSON.parse(sessionStorage.getItem('line_debug_logs') || '[]');
-        logs.push({ timestamp: new Date().toISOString(), message, data });
-        sessionStorage.setItem('line_debug_logs', JSON.stringify(logs.slice(-20)));
-      } catch (error) {
-        const logs = [{ timestamp: new Date().toISOString(), message, data }];
-        sessionStorage.setItem('line_debug_logs', JSON.stringify(logs));
-      }
-    };
-
-    logDebug('handleLineWallet: Starting LINE OAuth 2.0 authentication');
-    
-    // Check if we're in LIFF context (arrived via LIFF URL)
-    const currentUrl = window.location.href;
-    const hasSourceLine = currentUrl.includes('source=line');
-    logDebug('LIFF context check:', { 
-      currentUrl, 
-      hasSourceLine,
-      inLiffContext: hasSourceLine 
-    });
-    
-    const channelID = (import.meta as any).env.VITE_LINE_CHANNEL_ID || '2007331425';
-    const authURL = (import.meta as any).env.VITE_AUTH_URL || 'https://access.line.me/oauth2/v2.1/authorize';
-    
-    const backendURL = (import.meta as any).env.VITE_BACKEND_URL || 'http://localhost:3001';
-    const callbackUrl = `${backendURL}/auth/line/callback`;
-    
-    logDebug('Configuration:', { channelID, backendURL });
-    
-    try {
-      // Step 1: Get nonce from backend
-      logDebug('Requesting nonce from backend', `${backendURL}/auth/line/nonce`);
-      const nonceResponse = await fetch(`${backendURL}/auth/line/nonce`, {
-        headers: {
-          /// @notice only needed for local ngrok tunnels
-          'ngrok-skip-browser-warning': 'true'
-        }
-      });
-      logDebug('Response status:', nonceResponse.status);
-      logDebug('Response headers:', Object.fromEntries(nonceResponse.headers.entries()));
-      
-      if (!nonceResponse.ok) {
-        console.log('Failed to get nonce:', nonceResponse.status);
-        throw new Error('Failed to get authentication nonce');
-      }
-      
-      const responseText = await nonceResponse.text();
-      
-      const { nonce, nonceId } = JSON.parse(responseText);
-      logDebug('Nonce received:', { nonceId });
-
-      // Step 2: Build OAuth 2.0 URL with backend callback
-      
-      // Build OAuth URL - bot_prompt should NOT be URL encoded
-      const fullAuthUrl = `${authURL}` + `?`+ 
-        `response_type=code&` +
-        `client_id=${channelID}&` +
-        `redirect_uri=${encodeURIComponent(callbackUrl)}&` +
-        `state=${encodeURIComponent(nonceId)}&` +
-        `bot_prompt=aggressive&` +
-        `scope=${encodeURIComponent('profile openid')}&` +
-        `nonce=${nonce}`;
-      
-      logDebug('OAuth URL built:', {
-        inLiffContext: hasSourceLine,
-        callbackUrl,
-        encodedCallbackUrl: encodeURIComponent(callbackUrl),
-        hasNonce: !!nonce,
-        hasState: !!nonceId,
-        botPrompt: 'aggressive'
-      });
-      
-      // Step 3: Redirect to LINE OAuth (backend will handle callback)
-      logDebug('Redirecting to LINE OAuth...');
-      window.location.href = fullAuthUrl;
-      
-    } catch (error) {
-      logDebug('OAuth setup failed:', error);
-      throw new Error('LINE authentication setup failed');
-    }
-  };
-
 
   const handleOverlayClick = (e: React.MouseEvent) => {
     if (e.target === e.currentTarget) {
@@ -235,7 +240,7 @@ const WalletModal: React.FC<WalletModalProps> = ({ onClose, onAuthSuccess }) => 
             ✕
           </button>
         </div>
-        
+
         <div className="wallet-modal-content">
           <div className="logo-section">
             <div className="logo-circle">
@@ -246,8 +251,8 @@ const WalletModal: React.FC<WalletModalProps> = ({ onClose, onAuthSuccess }) => 
           </div>
 
           <div className="wallet-options">
-            <button 
-              className="wallet-button google" 
+            <button
+              className="wallet-button google"
               onClick={() => handleConnect('google')}
               disabled={connectionState === 'connecting'}
             >
@@ -255,8 +260,8 @@ const WalletModal: React.FC<WalletModalProps> = ({ onClose, onAuthSuccess }) => 
               <span>Connect with Google</span>
             </button>
 
-            <button 
-              className="wallet-button line" 
+            <button
+              className="wallet-button line"
               onClick={() => handleConnect('line')}
               disabled={connectionState === 'connecting'}
             >
@@ -264,8 +269,8 @@ const WalletModal: React.FC<WalletModalProps> = ({ onClose, onAuthSuccess }) => 
               <span>Connect with LINE</span>
             </button>
 
-            <button 
-              className="wallet-button kaia" 
+            <button
+              className="wallet-button kaia"
               onClick={() => handleConnect('kaia')}
               disabled={connectionState === 'connecting'}
             >
@@ -273,8 +278,8 @@ const WalletModal: React.FC<WalletModalProps> = ({ onClose, onAuthSuccess }) => 
               <span>Connect with KAIA Wallet</span>
             </button>
 
-            <button 
-              className="wallet-button okx" 
+            <button
+              className="wallet-button okx"
               onClick={() => handleConnect('okx')}
               disabled={connectionState === 'connecting'}
             >

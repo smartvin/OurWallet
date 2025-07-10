@@ -7,7 +7,7 @@ function App() {
   const [showWalletModal, setShowWalletModal] = useState(false);
   const [user, setUser] = useState<any>(null);
 
-  const googleClientId = import.meta.env.VITE_GOOGLE_CLIENT_ID;
+  const googleClientId = (import.meta as any).env.VITE_GOOGLE_CLIENT_ID;
 
   const handleAuthSuccess = (userData: any) => {
     setUser(userData);
@@ -39,7 +39,7 @@ function App() {
       const authSuccess = urlParams.get('auth_success') === 'true';
       const authError = urlParams.get('auth_error');
       
-      logDebug('🔷 App mounted - checking for LINE OAuth callback:', {
+      logDebug('App mounted - checking for LINE OAuth callback:', {
         fullUrl: window.location.href,
         search: window.location.search,
         rawParams: Object.fromEntries(urlParams.entries()),
@@ -51,16 +51,16 @@ function App() {
       });
       
       if (authSuccess && authToken) {
-        logDebug('✅ LINE OAuth callback detected in App! Processing authentication token...');
+        logDebug('LINE OAuth callback detected in App! Processing authentication token...');
         
         try {
           // Decode JWT token (client-side)
-          logDebug('🔷 Starting JWT token decode, token length:', authToken.length);
+          logDebug('Starting JWT token decode, token length:', authToken.length);
           const tokenParts = authToken.split('.');
-          logDebug('🔷 JWT token parts:', { partsCount: tokenParts.length, hasParts: tokenParts.map(p => !!p) });
+          logDebug('JWT token parts:', { partsCount: tokenParts.length, hasParts: tokenParts.map(p => !!p) });
           
           const tokenPayload = JSON.parse(atob(tokenParts[1]));
-          logDebug('✅ JWT token decoded successfully:', {
+          logDebug('JWT token decoded successfully:', {
             lineId: tokenPayload.lineId,
             displayName: tokenPayload.displayName,
             verified: tokenPayload.verified,
@@ -79,26 +79,26 @@ function App() {
           // Clean up URL
           window.history.replaceState({}, document.title, window.location.pathname);
           
-          logDebug('🔷 Calling handleAuthSuccess with userData:', userData);
+          logDebug('Calling handleAuthSuccess with userData:', userData);
           
           try {
             handleAuthSuccess(userData);
-            logDebug('✅ handleAuthSuccess call completed successfully');
+            logDebug('handleAuthSuccess call completed successfully');
           } catch (authError) {
-            logDebug('❌ handleAuthSuccess call failed:', authError);
+            logDebug('handleAuthSuccess call failed:', authError);
             throw authError;
           }
           
-          logDebug('✅ LINE authentication process completed successfully in App');
+          logDebug('LINE authentication process completed successfully in App');
         } catch (err: any) {
-          logDebug('❌ LINE token processing failed in App:', err);
+          logDebug('LINE token processing failed in App:', err);
           // Could set an error state here if needed
         }
       } else if (authError) {
-        logDebug('❌ LINE OAuth error detected in App:', authError);
+        logDebug('LINE OAuth error detected in App:', authError);
         // Could set an error state here if needed
       } else {
-        logDebug('🔷 No LINE OAuth callback detected - normal page load');
+        logDebug('No LINE OAuth callback detected - normal page load');
       }
     };
 

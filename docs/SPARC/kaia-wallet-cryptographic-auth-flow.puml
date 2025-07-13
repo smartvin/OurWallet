@@ -1,0 +1,130 @@
+@startuml KAIA Wallet Cryptographic Authentication Flow
+!theme plain
+skinparam backgroundColor #FFFFFF
+skinparam sequenceArrowThickness 2
+skinparam roundcorner 10
+skinparam maxmessagesize 60
+
+title KAIA Wallet Cryptographic Authentication Flow\nChallenge-Response Protocol with ECDSA Signature Verification
+
+actor User as U
+participant "Frontend\n(WalletModal)" as FE
+participant "KAIA Wallet\n(Kaikas)" as WALLET
+participant "Backend\n(Controller)" as BE
+participant "KAIA Auth\nService" as SVC
+participant "Challenge Store\n(In-Memory)" as STORE
+
+== Challenge Generation Phase ==
+U -> FE: Click "Connect with KAIA Wallet"
+activate FE
+
+FE -> WALLET: Check wallet availability\nwindow.klaytn exists?
+activate WALLET
+WALLET -> FE: Wallet available
+deactivate WALLET
+
+FE -> BE: GET /auth/kaia/challenge
+activate BE
+
+BE -> SVC: generateChallenge()
+activate SVC
+
+SVC -> SVC: Generate cryptographically secure nonce\nrandomBytes(32).toString('hex')
+SVC -> SVC: Create timestamp\nMath.floor(Date.now() / 1000)
+SVC -> SVC: Generate challenge ID\nrandomBytes(16).toString('hex')
+
+SVC -> SVC: Construct challenge message:\n"Sign in to MultiWallet\\n" +\n"Domain: line.depick.wtf\\n" +\n"Nonce: 0x1234567890abcdef...\\n" +\n"Timestamp: 1673123456"
+
+SVC -> STORE: Store challenge\n{ challengeId, nonce, timestamp, domain, expiresAt }
+activate STORE
+STORE -> SVC: Challenge stored (5 min expiry)
+deactivate STORE
+
+SVC -> BE: { challengeId, message, expiresAt }
+deactivate SVC
+
+BE -> FE: HTTP 200:\n{ challengeId, message, expiresAt }
+deactivate BE
+
+== Wallet Connection & Signature Phase ==
+FE -> WALLET: window.klaytn.enable()\nRequest wallet connection
+activate WALLET
+
+WALLET -> U: Show connection prompt\n"Connect to MultiWallet?"
+U -> WALLET: Approve connection
+
+WALLET -> FE: Return wallet address\naccounts[0] = "0x742C...4BaB"
+deactivate WALLET
+
+FE -> FE: Store wallet address\nconst address = accounts[0]
+
+FE -> WALLET: window.klaytn.sign(message, address)\nRequest signature for challenge
+activate WALLET
+
+note over WALLET: ECDSA Signature Generation:\n1. Hash message with Keccak-256\n2. Sign hash with private key (secp256k1)\n3. Return signature components (r, s, v)
+
+WALLET -> U: Show signature prompt\n"Sign message for authentication?"
+U -> WALLET: Approve signature
+
+WALLET -> WALLET: **CRYPTOGRAPHIC OPERATION**:\nPrivate key signs message hash\n(Private key NEVER leaves wallet)
+
+WALLET -> FE: Return ECDSA signature\n"0x1234567890abcdef..." (r, s, v)
+deactivate WALLET
+
+== Signature Verification Phase ==
+FE -> BE: POST /auth/kaia/verify\nContent-Type: application/json\n{ challengeId, address, signature, message }
+activate BE
+
+BE -> SVC: verifySignature(challengeId, address, signature, message)
+activate SVC
+
+SVC -> STORE: Retrieve challenge\nchallenge = store.get(challengeId)
+activate STORE
+STORE -> SVC: Return challenge data
+deactivate STORE
+
+SVC -> SVC: **CHALLENGE VALIDATION**:\n1. Verify challenge exists\n2. Check not expired (< 5 minutes)\n3. Mark challenge as consumed
+
+SVC -> STORE: Delete used challenge\nstore.delete(challengeId)
+activate STORE
+STORE -> SVC: Challenge consumed
+deactivate STORE
+
+SVC -> SVC: **MESSAGE VERIFICATION**:\nReconstruct expected message:\n"Sign in to MultiWallet\\n" +\n"Domain: line.depick.wtf\\n" +\n"Nonce: stored_nonce\\n" +\n"Timestamp: stored_timestamp"
+
+SVC -> SVC: **CRYPTOGRAPHIC VERIFICATION**:\n1. Hash message with Keccak-256\n2. Recover public key from signature\n   ecrecover(hash, v, r, s)\n3. Derive address from public key\n   keccak256(publicKey).slice(-20)\n4. Compare derived vs claimed address
+
+alt Signature Verification Successful
+    SVC -> SVC: **JWT TOKEN CREATION**:\nCreate payload:\n{ provider: 'kaia',\n  address: verifiedAddress,\n  chainId: 8217,\n  verified: true,\n  authenticatedAt: timestamp }\nSign with JWT_SECRET (1h expiry)
+    
+    SVC -> BE: { jwtToken, userData }
+    deactivate SVC
+    
+    BE -> FE: HTTP 200:\n{ success: true,\n  auth_token: JWT_TOKEN,\n  user_data: { address, chainId, verified } }
+    deactivate BE
+    
+    FE -> FE: Create user session:\n{ provider: 'kaia',\n  address: userData.address,\n  chainId: userData.chainId,\n  verified: userData.verified,\n  token: auth_token }
+    
+    FE -> FE: onAuthSuccess(userData)\nStore JWT token in session
+    
+    FE -> U: Show "Connected" status\nDisplay: "Connected: kaia (0x742C...4BaB)"
+    deactivate FE
+
+else Verification Failed
+    SVC -> BE: throw Error("Signature verification failed")
+    deactivate SVC
+    
+    BE -> FE: HTTP 400: Verification failed
+    deactivate BE
+    
+    FE -> U: Show error message
+    deactivate FE
+end
+
+== Security Properties Achieved ==
+note over U, STORE: **Cryptographic Security Guarantees:**\n• Private key never transmitted or exposed\n• Mathematical proof of wallet ownership\n• Single-use challenge prevents replay attacks\n• Domain binding prevents cross-site reuse\n• Time-bound authentication (5 minute window)\n• ECDSA signature provides non-repudiation
+
+== Alternative Error Flows ==
+note over SVC, BE: **Error Scenarios:**\n• Wallet not available → User prompted to install Kaikas\n• User rejects connection → Connection canceled\n• User rejects signature → Authentication failed\n• Challenge expired → Request new challenge\n• Invalid signature → Cryptographic verification failed\n• Network error → Retry mechanism
+
+@enduml

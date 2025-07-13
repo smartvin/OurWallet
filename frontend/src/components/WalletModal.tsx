@@ -203,21 +203,149 @@ const WalletModal: React.FC<WalletModalProps> = ({ onClose, onAuthSuccess }) => 
 
 
   const handleKaiaWallet = async () => {
-    // Use existing KAIA wallet logic (Kaikas uses window.klaytn)
-    if (!(window as any).klaytn) {
+    // Persistent logging function
+    const logDebug = (message: string, data?: any) => {
+      console.log(message, data);
+      try {
+        const logs = JSON.parse(sessionStorage.getItem('line_debug_logs') || '[]');
+        logs.push({ timestamp: new Date().toISOString(), message, data });
+        sessionStorage.setItem('line_debug_logs', JSON.stringify(logs.slice(-20)));
+      } catch (error) {
+        const logs = [{ timestamp: new Date().toISOString(), message, data }];
+        sessionStorage.setItem('line_debug_logs', JSON.stringify(logs));
+      }
+    };
+
+    logDebug('handleKaiaWallet: Starting KAIA wallet authentication');
+
+    // Check if KAIA wallet is available
+    if (!(window as any).klaytn && !(window as any).kaiawallet) {
       throw new Error('KAIA wallet not found. Please install Kaikas extension.');
     }
 
-    const accounts = await (window as any).klaytn.enable();
-    if (!accounts || accounts.length === 0) {
-      throw new Error('No KAIA accounts found.');
-    }
+    const backendUrl = (import.meta as any).env.VITE_BACKEND_URL || 'http://localhost:3001';
+    
+    try {
+      // Step 1: Connect to wallet and get account
+      logDebug('Connecting to KAIA wallet...');
+      
+      let accounts;
+      let walletProvider;
+      
+      // Try new kaiawallet API first, fallback to legacy klaytn
+      if ((window as any).kaiawallet) {
+        walletProvider = (window as any).kaiawallet;
+        accounts = await walletProvider.request({
+          method: 'eth_requestAccounts'
+        });
+        logDebug('Using kaiawallet API');
+      } else if ((window as any).klaytn) {
+        walletProvider = (window as any).klaytn;
+        accounts = await walletProvider.enable();
+        logDebug('Using legacy klaytn API');
+      }
+      
+      if (!accounts || accounts.length === 0) {
+        throw new Error('No KAIA accounts found.');
+      }
+      
+      const address = accounts[0];
+      logDebug('Wallet connected:', { address });
 
-    return {
-      provider: 'kaia',
-      address: accounts[0],
-      chainId: 8217
-    };
+      // Step 2: Get current chain ID
+      let chainIdNumber;
+      
+      if ((window as any).kaiawallet) {
+        const chainId = await walletProvider.request({ method: 'eth_chainId' });
+        chainIdNumber = parseInt(chainId, 16); // hex to decimal
+      } else {
+        const chainId = await walletProvider.networkVersion;
+        chainIdNumber = parseInt(chainId, 10);
+      }
+      
+      logDebug('Chain ID detected:', { chainId: chainIdNumber });
+
+      // Step 3: Validate chain ID (8217 = KAIA Mainnet, 1001 = KAIA Testnet)
+      if (chainIdNumber !== 8217 && chainIdNumber !== 1001) {
+        throw new Error(
+          `Unsupported KAIA network. Please switch to KAIA Mainnet (8217) or KAIA Testnet (1001). Current: ${chainIdNumber}`
+        );
+      }
+
+      // Step 4: Request challenge from backend
+      logDebug('Requesting challenge from backend...');
+      const challengeResponse = await fetch(`${backendUrl}/auth/kaia/challenge`, {
+        headers: {
+          'ngrok-skip-browser-warning': 'true'
+        }
+      });
+
+      if (!challengeResponse.ok) {
+        throw new Error('Failed to get authentication challenge');
+      }
+
+      const { challengeId, message, expiresAt } = await challengeResponse.json();
+      logDebug('Challenge received:', { challengeId, expiresAt });
+
+      // Step 5: Sign challenge message
+      logDebug('Requesting signature from wallet...');
+      
+      let signature: string;
+      if ((window as any).kaiawallet) {
+        // Use new kaiawallet API
+        signature = await walletProvider.request({
+          method: 'personal_sign',
+          params: [message, address]
+        });
+        logDebug('Signature received from kaiawallet API');
+      } else {
+        // Use legacy klaytn API
+        signature = await walletProvider.request({
+          method: 'personal_sign',
+          params: [message, address]
+        });
+        logDebug('Signature received from legacy klaytn API');
+      }
+
+      // Step 6: Submit proof to backend
+      logDebug('Submitting proof to backend...');
+      const verifyResponse = await fetch(`${backendUrl}/auth/kaia/verify`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'ngrok-skip-browser-warning': 'true'
+        },
+        body: JSON.stringify({
+          challengeId,
+          address,
+          signature,
+          message,
+          chainId: chainIdNumber
+        })
+      });
+
+      if (!verifyResponse.ok) {
+        const errorText = await verifyResponse.text();
+        throw new Error(`KAIA signature verification failed: ${errorText}`);
+      }
+
+      const result = await verifyResponse.json();
+      logDebug('Signature verification successful:', result.user_data);
+
+      // Step 7: Create user data with our JWT token
+      return {
+        provider: 'kaia',
+        address: result.user_data.address,
+        chainId: result.user_data.chainId,
+        chainName: result.user_data.chainName,
+        verified: result.user_data.verified,
+        token: result.auth_token
+      };
+
+    } catch (error) {
+      logDebug('KAIA wallet authentication failed:', error);
+      throw error;
+    }
   };
 
   const handleOkxWallet = async () => {

@@ -229,8 +229,8 @@ const WalletModal: React.FC<WalletModalProps> = ({ onClose, onAuthSuccess }) => 
       // Step 1: Connect to wallet and get account
       logDebug('Connecting to KAIA wallet...');
       
-      let accounts;
-      let walletProvider;
+      let accounts: string[];
+      let walletProvider: any;
       
       // Try new kaiawallet API first, fallback to legacy klaytn
       if ((window as any).kaiawallet) {
@@ -253,7 +253,7 @@ const WalletModal: React.FC<WalletModalProps> = ({ onClose, onAuthSuccess }) => 
       logDebug('Wallet connected:', { address });
 
       // Step 2: Get current chain ID
-      let chainIdNumber;
+      let chainIdNumber: number;
       
       if ((window as any).kaiawallet) {
         const chainId = await walletProvider.request({ method: 'eth_chainId' });

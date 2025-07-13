@@ -51,21 +51,37 @@ const WalletModal: React.FC<WalletModalProps> = ({ onClose, onAuthSuccess }) => 
     onSuccess: async (response) => {
       try {
         setConnectionState('connecting');
-        const googleData = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
-          headers: { 'Authorization': `Bearer ${response.access_token}` }
-        }).then(res => res.json());
+        
+        // Send access token to backend for validation and JWT creation
+        const backendUrl = (import.meta as any).env.VITE_BACKEND_URL || 'http://localhost:3001';
+        const validationResponse = await fetch(`${backendUrl}/auth/google/validate`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'ngrok-skip-browser-warning': 'true'
+          },
+          body: JSON.stringify({
+            access_token: response.access_token
+          })
+        });
 
-        // Save Google user info in registData
+        if (!validationResponse.ok) {
+          const errorText = await validationResponse.text();
+          throw new Error(`Google token validation failed: ${errorText}`);
+        }
+
+        const validationResult = await validationResponse.json();
+        
+        // Create user data with our JWT token
         const googleAuth = {
-          id: googleData.email,
-          loginProvider: 'google',
-          access_token: response.access_token,
-          expireDate: new Date(Date.now() + response.expires_in * 1000).toISOString(),
-          sub: googleData.sub,
-          email: googleData.email,
-          name: googleData.name
+          provider: 'google',
+          googleId: validationResult.user_data.googleId,
+          email: validationResult.user_data.email,
+          name: validationResult.user_data.name,
+          picture: validationResult.user_data.picture,
+          verified: validationResult.user_data.verified,
+          token: validationResult.auth_token
         };
-        localStorage.setItem('registData', JSON.stringify(googleAuth));
 
         setConnectionState('connected');
         onAuthSuccess(googleAuth);

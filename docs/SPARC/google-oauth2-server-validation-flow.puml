@@ -1,0 +1,105 @@
+@startuml Google OAuth 2.0 Server-Side Token Validation Flow
+!theme plain
+skinparam backgroundColor #FFFFFF
+skinparam sequenceArrowThickness 2
+skinparam roundcorner 10
+skinparam maxmessagesize 60
+
+title Google OAuth 2.0 Server-Side Token Validation Flow\nCurrent Implementation - Verified Working
+
+actor User as U
+participant "Frontend\n(App.tsx)" as FE
+participant "WalletModal\n(.tsx)" as WM
+participant "Google OAuth\nLibrary" as GLIB
+participant "Google Platform\n(OAuth)" as GOOGLE
+participant "Backend\n(Controller)" as BE
+participant "Google Auth\nService" as SVC
+
+== OAuth Initiation ==
+U -> FE: Access ngrok URL\nhttps://b0280d99b435.ngrok-free.app
+activate FE
+U -> FE: Click "Connect Wallet"
+FE -> WM: Show WalletModal
+activate WM
+U -> WM: Click "Connect with Google"
+
+WM -> WM: handleConnect('google')\ncalls googleLogin()
+WM -> GLIB: useGoogleLogin.onSuccess
+activate GLIB
+
+note over GLIB: @react-oauth/google library\nhandles popup/redirect flow
+
+GLIB -> GOOGLE: OAuth 2.0 Authorization Request\n(popup or redirect)
+activate GOOGLE
+GOOGLE -> U: Show Google login screen\n(if not already logged in)
+U -> GOOGLE: Enter Google credentials
+GOOGLE -> U: Show consent screen\n(email, profile permissions)
+U -> GOOGLE: Accept permissions
+
+GOOGLE -> GLIB: Return access_token\n+ expires_in + token_type
+deactivate GOOGLE
+GLIB -> WM: onSuccess(response)\nresponse.access_token
+deactivate GLIB
+
+== Backend Token Validation ==
+WM -> WM: setConnectionState('connecting')
+
+WM -> BE: POST /auth/google/validate\nContent-Type: application/json\nbody: { access_token: "ya29.a0..." }\nheader: ngrok-skip-browser-warning
+activate BE
+
+BE -> BE: validateToken()\nExtract access_token from body
+
+BE -> SVC: validateGoogleToken(access_token)
+activate SVC
+
+SVC -> GOOGLE: GET /tokeninfo?access_token=TOKEN\nValidate token with Google
+activate GOOGLE
+GOOGLE -> SVC: Token info response:\n{ aud, exp, email, sub, ... }
+deactivate GOOGLE
+
+SVC -> SVC: Verify token audience\n(aud === GOOGLE_CLIENT_ID)
+alt Invalid audience
+    SVC -> BE: throw Error("Token not for this app")
+    BE -> WM: HTTP 400: Token validation failed
+end
+
+SVC -> SVC: Check token expiration\n(exp > current_time)
+alt Token expired
+    SVC -> BE: throw Error("Token has expired")
+    BE -> WM: HTTP 400: Token expired
+end
+
+SVC -> GOOGLE: GET /oauth2/v3/userinfo\nAuthorization: Bearer ACCESS_TOKEN
+activate GOOGLE
+GOOGLE -> SVC: User profile:\n{ sub, email, name, picture, email_verified, ... }
+deactivate GOOGLE
+
+SVC -> SVC: Create JWT token:\n{ provider: 'google',\n  googleId: sub,\n  email: email,\n  name: name,\n  picture: picture,\n  emailVerified: email_verified,\n  verified: email_verified,\n  authenticatedAt: timestamp }\nSign with JWT_SECRET (1h expiration)
+
+SVC -> BE: { jwtToken, userData }
+deactivate SVC
+
+BE -> WM: HTTP 200:\n{ success: true,\n  auth_token: JWT_TOKEN,\n  user_data: { ... } }
+deactivate BE
+
+== Frontend Token Processing ==
+WM -> WM: Create googleAuth object:\n{ provider: 'google',\n  googleId: user_data.googleId,\n  email: user_data.email,\n  name: user_data.name,\n  picture: user_data.picture,\n  verified: user_data.verified,\n  token: auth_token }
+
+WM -> WM: setConnectionState('connected')
+
+WM -> FE: onAuthSuccess(googleAuth)
+WM -> FE: Modal closes
+deactivate WM
+
+FE -> FE: handleAuthSuccess(googleAuth)\nsetUser(googleAuth)\nsetShowWalletModal(false)
+
+FE -> U: Show "Connected" status\nDisplay: "Connected: google (user@...)"
+deactivate FE
+
+== Success State ==
+note over U, FE: User is now authenticated with Google\nJWT token stored in frontend state\nNo sensitive tokens persisted\nServer-side validation completed
+
+== Alternative Error Flows ==
+note over SVC, BE: Error scenarios:\n• Invalid access token → HTTP 400\n• Wrong audience → HTTP 400\n• Expired token → HTTP 400\n• Network failure → HTTP 500\n• Missing client ID → HTTP 400
+
+@enduml

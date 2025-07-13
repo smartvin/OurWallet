@@ -1,0 +1,133 @@
+@startuml LINE OAuth 2.0 Backend Callback Flow - Current Implementation
+!theme plain
+skinparam backgroundColor #FFFFFF
+skinparam sequenceArrowThickness 2
+skinparam roundcorner 10
+skinparam maxmessagesize 60
+
+title LINE OAuth 2.0 Backend Callback Flow\nCurrent Implementation - Verified Working
+
+actor User as U
+participant "Frontend\n(App.tsx)" as FE
+participant "WalletModal\n(.tsx)" as WM
+participant "Backend\n(Controller)" as BE
+participant "LINE Auth\nService" as SVC
+participant "LINE Platform\n(OAuth)" as LINE
+participant "Official Account\n(Bot)" as OA
+
+== Page Load - Callback Detection ==
+U -> FE: Access ngrok URL\nhttps://b0280d99b435.ngrok-free.app
+activate FE
+FE -> FE: useEffect() runs\ncheckLineCallback()
+FE -> FE: Parse URL parameters\n(auth_token, auth_success, auth_error)
+alt No auth parameters
+    FE -> FE: logDebug("No LINE OAuth callback detected")
+    FE -> U: Show normal page\n"Not connected"
+end
+deactivate FE
+
+== OAuth Initiation ==
+U -> FE: Click "Connect Wallet"
+activate FE
+FE -> WM: Show WalletModal
+activate WM
+U -> WM: Click "Connect with LINE"
+WM -> WM: handleLineOAuth()
+
+note over WM: LIFF context check\n(source=line parameter)
+
+WM -> BE: GET /auth/line/nonce\nheader: ngrok-skip-browser-warning
+activate BE
+BE -> SVC: generateNonce()
+activate SVC
+SVC -> SVC: Generate random nonce (16 bytes)\nGenerate nonceId (8 bytes)
+SVC -> SVC: Store in nonceStore\n(5 minute expiration)
+SVC -> BE: { nonce, nonceId }
+deactivate SVC
+BE -> WM: { success: true, nonce, nonceId }
+deactivate BE
+
+WM -> WM: Build OAuth URL:\nhttps://access.line.me/oauth2/v2.1/authorize\n+ response_type=code\n+ client_id=2007331425\n+ redirect_uri=backend/callback\n+ state=nonceId\n+ bot_prompt=aggressive\n+ scope=profile openid\n+ nonce=nonce
+
+WM -> U: window.location.href = authUrl
+deactivate WM
+deactivate FE
+
+== LINE Platform Processing ==
+U -> LINE: Redirected to LINE OAuth
+activate LINE
+alt User not logged in
+    LINE -> U: Show LINE login screen
+    U -> LINE: Enter LINE credentials
+end
+
+LINE -> U: Show consent screen\n(profile, openid permissions)
+U -> LINE: Accept permissions
+
+LINE -> OA: bot_prompt=aggressive\nShow Official Account friend prompt
+activate OA
+OA -> U: "Add @997kysit/dePick-OA as friend?"
+U -> OA: Add as friend (required)
+OA -> LINE: Friend addition confirmed
+deactivate OA
+
+LINE -> BE: GET /auth/line/callback\n?code=AUTH_CODE&state=NONCE_ID
+deactivate LINE
+
+== Backend Callback Processing ==
+activate BE
+BE -> BE: handleOAuthCallback()\nValidate parameters
+BE -> SVC: handleOAuthCallback(code, state)
+activate SVC
+
+SVC -> SVC: Verify state parameter\n(nonceId exists & not expired)
+alt Invalid/expired nonce
+    SVC -> BE: throw Error("Invalid state")
+    BE -> FE: Redirect with auth_error
+end
+
+SVC -> LINE: POST /oauth2/v2.1/token\n+ grant_type=authorization_code\n+ code=AUTH_CODE\n+ redirect_uri=backend/callback\n+ client_id + client_secret
+activate LINE
+LINE -> SVC: { access_token, id_token, ... }
+deactivate LINE
+
+SVC -> LINE: POST /oauth2/v2.1/verify\n+ id_token=ID_TOKEN\n+ client_id=2007331425\n+ nonce=STORED_NONCE
+activate LINE
+LINE -> SVC: Verification success
+deactivate LINE
+
+SVC -> LINE: GET /v2/profile\nAuthorization: Bearer ACCESS_TOKEN
+activate LINE
+LINE -> SVC: { userId, displayName, pictureUrl, ... }
+deactivate LINE
+
+SVC -> SVC: Create JWT token:\n{ provider: 'line',\n  lineId: userId,\n  displayName: displayName,\n  pictureUrl: pictureUrl,\n  verified: true,\n  authenticatedAt: timestamp }\nSign with JWT_SECRET (1h expiration)
+
+SVC -> SVC: Cleanup nonce\n(delete from nonceStore)
+SVC -> BE: { jwtToken, userData }
+deactivate SVC
+
+BE -> FE: HTTP 302 Redirect\nhttps://b0280d99b435.ngrok-free.app\n?auth_token=JWT_TOKEN\n&auth_success=true
+deactivate BE
+
+== Frontend Callback Detection ==
+U -> FE: Browser follows redirect
+activate FE
+FE -> FE: useEffect() runs\ncheckLineCallback()
+FE -> FE: Parse URL parameters:\nauth_token = JWT_TOKEN\nauth_success = "true"
+
+FE -> FE: Decode JWT token (client-side)\nconst tokenPayload = JSON.parse(atob(authToken.split('.')[1]))
+
+FE -> FE: Create userData object:\n{ provider: 'line',\n  lineID: tokenPayload.lineId,\n  displayName: tokenPayload.displayName,\n  pictureUrl: tokenPayload.pictureUrl,\n  verified: tokenPayload.verified,\n  token: authToken }
+
+FE -> FE: Clean up URL\nwindow.history.replaceState({}, title, pathname)
+
+FE -> FE: handleAuthSuccess(userData)\nsetUser(userData)\nsetShowWalletModal(false)
+
+FE -> U: Show "Connected" status\nDisplay user info
+deactivate FE
+
+== Success State ==
+note over U, FE: User is now authenticated with LINE\nOfficial Account friendship enforced\nJWT token stored in frontend state\nURL cleaned (no token exposure)
+
+@enduml

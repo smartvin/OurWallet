@@ -38,8 +38,9 @@ function App() {
       const authToken = urlParams.get('auth_token');
       const authSuccess = urlParams.get('auth_success') === 'true';
       const authError = urlParams.get('auth_error');
-      
-      logDebug('App mounted - checking for LINE OAuth callback:', {
+      const provider = urlParams.get('provider');
+
+      logDebug('App mounted - checking for OAuth callback:', {
         fullUrl: window.location.href,
         search: window.location.search,
         rawParams: Object.fromEntries(urlParams.entries()),
@@ -47,11 +48,12 @@ function App() {
         authTokenLength: authToken?.length || 0,
         authSuccess: authSuccess,
         authError: authError || 'none',
+        provider: provider || 'line',
         shouldDetectCallback: !!(authSuccess && authToken)
       });
-      
+
       if (authSuccess && authToken) {
-        logDebug('LINE OAuth callback detected in App! Processing authentication token...');
+        logDebug(`${provider?.toUpperCase() || 'LINE'} OAuth callback detected in App! Processing authentication token...`);
         
         try {
           // Decode JWT token (client-side)
@@ -61,20 +63,35 @@ function App() {
           
           const tokenPayload = JSON.parse(atob(tokenParts[1]));
           logDebug('JWT token decoded successfully:', {
-            lineId: tokenPayload.lineId,
-            displayName: tokenPayload.displayName,
+            provider: tokenPayload.provider,
             verified: tokenPayload.verified,
             fullPayload: tokenPayload
           });
-          
-          const userData = {
-            provider: 'line',
-            lineID: tokenPayload.lineId,
-            displayName: tokenPayload.displayName,
-            pictureUrl: tokenPayload.pictureUrl,
-            verified: tokenPayload.verified,
-            token: authToken
-          };
+
+          // Build user data based on provider
+          let userData: any;
+          if (provider === 'telegram' || tokenPayload.provider === 'TELEGRAM') {
+            userData = {
+              provider: 'telegram',
+              telegramId: tokenPayload.telegramId,
+              firstName: tokenPayload.firstName,
+              lastName: tokenPayload.lastName,
+              username: tokenPayload.username,
+              displayName: tokenPayload.firstName + (tokenPayload.lastName ? ' ' + tokenPayload.lastName : ''),
+              photoUrl: tokenPayload.photoUrl,
+              verified: tokenPayload.verified,
+              token: authToken
+            };
+          } else {
+            userData = {
+              provider: 'line',
+              lineID: tokenPayload.lineId,
+              displayName: tokenPayload.displayName,
+              pictureUrl: tokenPayload.pictureUrl,
+              verified: tokenPayload.verified,
+              token: authToken
+            };
+          }
           
           // Clean up URL
           window.history.replaceState({}, document.title, window.location.pathname);
@@ -89,16 +106,16 @@ function App() {
             throw authError;
           }
           
-          logDebug('LINE authentication process completed successfully in App');
+          logDebug(`${provider?.toUpperCase() || 'LINE'} authentication process completed successfully in App`);
         } catch (err: any) {
-          logDebug('LINE token processing failed in App:', err);
+          logDebug(`${provider?.toUpperCase() || 'LINE'} token processing failed in App:`, err);
           // Could set an error state here if needed
         }
       } else if (authError) {
-        logDebug('LINE OAuth error detected in App:', authError);
+        logDebug(`${provider?.toUpperCase() || 'LINE'} OAuth error detected in App:`, authError);
         // Could set an error state here if needed
       } else {
-        logDebug('No LINE OAuth callback detected - normal page load');
+        logDebug('No OAuth callback detected - normal page load');
       }
     };
 
@@ -116,7 +133,7 @@ function App() {
         <h1>MultiWallet - Clean Authentication</h1>
         <div className="header-controls">
           <span className={`wallet-status ${user ? 'connected' : ''}`}>
-            {user ? `Connected: ${user.provider} (${(user.address || user.email || '').slice(0, 6)}...)` : 'Not connected'}
+            {user ? `Connected: ${user.provider} (${(user.address || user.email || user.username || user.displayName || '').slice(0, 15)}...)` : 'Not connected'}
           </span>
           <button 
             className="wallet-connect-btn"
@@ -138,8 +155,9 @@ function App() {
             <h2>✅ Authentication Successful</h2>
             <div className="user-info">
               <p><strong>Provider:</strong> {user.provider}</p>
-              <p><strong>Identity:</strong> {user.address || user.email}</p>
+              <p><strong>Identity:</strong> {user.address || user.email || user.username || user.displayName}</p>
               {user.chainId && <p><strong>Chain ID:</strong> {user.chainId}</p>}
+              {user.telegramId && <p><strong>Telegram ID:</strong> {user.telegramId}</p>}
             </div>
           </div>
         )}

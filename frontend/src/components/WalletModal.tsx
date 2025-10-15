@@ -8,6 +8,14 @@ interface WalletModalProps {
 
 type ConnectionState = 'idle' | 'connecting' | 'connected' | 'error';
 
+declare global {
+  interface Window {
+    TelegramLoginWidget?: {
+      dataOnauth?: (user: any) => void;
+    };
+  }
+}
+
 const WalletModal: React.FC<WalletModalProps> = ({ onClose, onAuthSuccess }) => {
   const [connectionState, setConnectionState] = useState<ConnectionState>('idle');
   const [error, setError] = useState<string>('');
@@ -33,6 +41,9 @@ const WalletModal: React.FC<WalletModalProps> = ({ onClose, onAuthSuccess }) => 
           break;
         case 'line':
           userData = await handleLineOAuth();
+          break;
+        case 'telegram':
+          userData = await handleTelegramLogin();
           break;
         default:
           throw new Error('Unsupported provider');
@@ -229,7 +240,7 @@ const WalletModal: React.FC<WalletModalProps> = ({ onClose, onAuthSuccess }) => 
       // Step 1: Connect to wallet and get account
       logDebug('Connecting to KAIA wallet...');
       
-      let accounts: string[];
+      let accounts: string[] = [];
       let walletProvider: any;
       
       // Try new kaiawallet API first, fallback to legacy klaytn
@@ -369,6 +380,105 @@ const WalletModal: React.FC<WalletModalProps> = ({ onClose, onAuthSuccess }) => 
     };
   };
 
+  const handleTelegramLogin = async () => {
+    // Persistent logging function
+    const logDebug = (message: string, data?: any) => {
+      console.log(message, data);
+      try {
+        const logs = JSON.parse(sessionStorage.getItem('telegram_debug_logs') || '[]');
+        logs.push({ timestamp: new Date().toISOString(), message, data });
+        sessionStorage.setItem('telegram_debug_logs', JSON.stringify(logs.slice(-20)));
+      } catch (error) {
+        const logs = [{ timestamp: new Date().toISOString(), message, data }];
+        sessionStorage.setItem('telegram_debug_logs', JSON.stringify(logs));
+      }
+    };
+
+    logDebug('handleTelegramLogin: Starting Telegram authentication');
+
+    const botUsername = (import.meta as any).env.VITE_TELEGRAM_BOT_USERNAME;
+    if (!botUsername || botUsername === 'YourBotUsername') {
+      logDebug('Bot username not configured');
+      throw new Error('Telegram bot not configured. Please set VITE_TELEGRAM_BOT_USERNAME');
+    }
+
+    const backendUrl = (import.meta as any).env.VITE_BACKEND_URL || 'http://localhost:3001';
+    logDebug('Bot username:', botUsername);
+    logDebug('Backend URL:', backendUrl);
+
+    // Use redirect method with return URL
+    const currentUrl = window.location.href;
+    const returnUrl = `${backendUrl}/auth/telegram/callback?return_url=${encodeURIComponent(currentUrl)}`;
+
+    logDebug('Redirect URL:', returnUrl);
+
+    // Save state to detect when we return from Telegram
+    sessionStorage.setItem('telegram_auth_pending', 'true');
+    sessionStorage.setItem('telegram_auth_time', Date.now().toString());
+
+    return new Promise((resolve, reject) => {
+      // Create a container for the widget
+      const container = document.createElement('div');
+      container.id = 'telegram-login-container';
+      container.style.position = 'fixed';
+      container.style.top = '50%';
+      container.style.left = '50%';
+      container.style.transform = 'translate(-50%, -50%)';
+      container.style.zIndex = '10000';
+      container.style.backgroundColor = 'white';
+      container.style.padding = '20px';
+      container.style.borderRadius = '10px';
+      container.style.boxShadow = '0 4px 20px rgba(0,0,0,0.3)';
+
+      // Add instructions
+      const instructions = document.createElement('div');
+      instructions.innerHTML = '<p style="margin-bottom: 15px; text-align: center;">Click the button below to login with Telegram</p>';
+      container.appendChild(instructions);
+
+      // Create widget container
+      const widgetContainer = document.createElement('div');
+      widgetContainer.style.textAlign = 'center';
+      container.appendChild(widgetContainer);
+
+      // Add close button
+      const closeBtn = document.createElement('button');
+      closeBtn.textContent = 'Cancel';
+      closeBtn.style.marginTop = '15px';
+      closeBtn.style.padding = '8px 16px';
+      closeBtn.style.cursor = 'pointer';
+      closeBtn.onclick = () => {
+        container.remove();
+        sessionStorage.removeItem('telegram_auth_pending');
+        reject(new Error('User cancelled Telegram login'));
+      };
+      container.appendChild(closeBtn);
+
+      document.body.appendChild(container);
+
+      // Load Telegram Widget script with redirect URL
+      const script = document.createElement('script');
+      script.src = 'https://telegram.org/js/telegram-widget.js?22';
+      script.async = true;
+      script.setAttribute('data-telegram-login', botUsername);
+      script.setAttribute('data-size', 'large');
+      script.setAttribute('data-auth-url', returnUrl);
+      script.setAttribute('data-request-access', 'write');
+
+      script.onload = () => {
+        logDebug('Telegram widget script loaded successfully with redirect URL');
+      };
+
+      script.onerror = () => {
+        logDebug('Failed to load Telegram widget script');
+        container.remove();
+        sessionStorage.removeItem('telegram_auth_pending');
+        reject(new Error('Failed to load Telegram widget'));
+      };
+
+      widgetContainer.appendChild(script);
+    });
+  };
+
 
   const handleOverlayClick = (e: React.MouseEvent) => {
     if (e.target === e.currentTarget) {
@@ -411,6 +521,15 @@ const WalletModal: React.FC<WalletModalProps> = ({ onClose, onAuthSuccess }) => 
             >
               <div className="wallet-icon line-icon">💬</div>
               <span>Connect with LINE</span>
+            </button>
+
+            <button
+              className="wallet-button telegram"
+              onClick={() => handleConnect('telegram')}
+              disabled={connectionState === 'connecting'}
+            >
+              <div className="wallet-icon telegram-icon">✈️</div>
+              <span>Connect with Telegram</span>
             </button>
 
             <button
